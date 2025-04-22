@@ -1,0 +1,8 @@
+__pycache__/
+# __pycache__/*
+data_test/
+results/
+static/
+weights/
+
+# git rm --ignore-unmatch --cached */__pycache__/*

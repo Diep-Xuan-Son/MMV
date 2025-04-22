@@ -1,0 +1,20 @@
+jwt
+
+ftfy
+fvcore
+ffmpeg-python
+torch==2.2.2
+torchvision==0.17.2
+torchtext==0.17.2
+torchaudio==2.2.2
+torchlibrosa
+
+langchain-google-genai
+langchain_openai
+
+# ----tts----
+munch
+noisereduce
+phonemizer
+espeakng-loader
+nltk
