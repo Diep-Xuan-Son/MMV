@@ -1,5 +1,12 @@
 jwt
 
+#----for database----
+psycopg2
+qdrant-client
+minio
+confluent-kafka
+aiokafka
+
 ftfy
 fvcore
 ffmpeg-python

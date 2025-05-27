@@ -5,4 +5,9 @@ results/
 static/
 weights/
 
+minio_data/
+postgres_data/
+qdrant_storage/
+redis_data/
+
 # git rm --ignore-unmatch --cached */__pycache__/*
