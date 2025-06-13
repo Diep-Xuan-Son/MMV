@@ -6,10 +6,10 @@ ROOT = FILE.parents[1]
 if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))
 
-from StyleTTS2.inference import StyleTTS2
 import os
-import soundfile as sf
 import torch
+import soundfile as sf
+from StyleTTS2.inference import StyleTTS2
 
 class TTS(object):
     def __init__(self, 

@@ -21,13 +21,15 @@ class VideoEditorWorker(object):
         self.duration_effect = duration_effect
 
     def detect_scene_change(self, u_id: str, video_path: str, threshold: float=0.3):
+        print(f"----running detect_scene_change----")
         output_dir = os.path.join(self.dir_info_scene_change, u_id)
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
-        subprocess.call(['ffmpeg', '-i', video_path, '-vf', f'select=gt(scene\\,{threshold}),metadata=print:file={output_dir}{os.sep}{os.path.basename(video_path)}_scenes.txt', '-f', 'null', '-'])
+        subprocess.call(['ffmpeg', '-i', video_path, '-vf', f'select=gt(scene\\,{threshold}),metadata=print:file={output_dir}{os.sep}{os.path.basename(video_path)}_scenes.txt', '-f', 'null', '-'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         return {"success": True}
 
     def split(self, u_id: str, start_time: float, duration: float, video_input_path: str, output_path: str, mute: bool):
+        print(f"----running split----")
         # output_dir = os.path.join(self.dir_split_video, u_id)
         # if not os.path.exists(output_dir):
         #     os.makedirs(output_dir)
@@ -37,28 +39,31 @@ class VideoEditorWorker(object):
         # if os.path.exists(output_path):
         #     return {"success": True, "path_video": output_path}
         if mute:
-            subprocess.call(['ffmpeg', "-y", "-i", video_input_path, "-ss", f"{start_time}", "-t", f"{duration}", "-an", "-c:v", "libx264", "-crf", "20", output_path])
+            subprocess.call(['ffmpeg', "-y", "-i", video_input_path, "-ss", f"{start_time}", "-t", f"{duration}", "-an", "-c:v", "libx264", "-crf", "20", output_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         else:
-            subprocess.call(['ffmpeg', "-y", "-i", video_input_path, "-ss", f"{start_time}", "-t", f"{duration}", "-c:v", "libx264", "-crf", "20", output_path])
+            subprocess.call(['ffmpeg', "-y", "-i", video_input_path, "-ss", f"{start_time}", "-t", f"{duration}", "-c:v", "libx264", "-crf", "20", output_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         return {"success": True, "path_video": output_path}
 
     def merge(self, list_video_path: list, path_video_merged: str):
+        print(f"----running merge----")
         # path_info_merged = f'{os.path.splitext(path_video_merged)[0]}.txt'
         path_info_merged = path_video_merged.replace(".mp4", ".txt")
         ftxt = open(path_info_merged, 'w')
         for v in list_video_path:
             ftxt.write(f"file '{v}'\n")
-        subprocess.call(['ffmpeg', '-f', 'concat', '-safe', '0', '-y', '-i', path_info_merged, '-c', 'copy', path_video_merged])
+        subprocess.call(['ffmpeg', '-f', 'concat', '-safe', '0', '-y', '-i', path_info_merged, '-c', 'copy', path_video_merged], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         return {"success": True}
 
     def add_text(self, text: str, video_input_path: str, video_output_path: str):
-        subprocess.call(['ffmpeg', "-y", "-i", video_input_path, "-vf", f"drawtext=text={text}:fontcolor=white:fontsize=24:box=1:boxcolor=black@0.5:boxborderw=5:x=(w-text_w)/2:y=h-th-10", "-c:v", "libx264", "-c:a", "aac", video_output_path])
+        print(f"----running add_text----")
+        subprocess.call(['ffmpeg', "-y", "-i", video_input_path, "-vf", f"drawtext=text={text}:fontcolor=white:fontsize=24:box=1:boxcolor=black@0.5:boxborderw=5:x=(w-text_w)/2:y=h-th-10", "-c:v", "libx264", "-c:a", "aac", video_output_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         return {"success": True}
     
     def get_duration(self, vinput: str):
         return float(ffmpeg.probe(vinput)["format"]["duration"])
 
     def add_effect(self, effect_type: list, list_video_path: list, video_output_path: str):
+        print(f"----running add_effect----")
         inputs = []
         info_convert = ""
         video_fades = ""
@@ -86,16 +91,18 @@ class VideoEditorWorker(object):
         # cmd = ['ffmpeg', '-y'] + inputs + ['-filter_complex', f'[0:v]fps=30,format=yuv420p[vid1]; [1:v]fps=30,format=yuv420p[vid2];[vid1][vid2]xfade=transition={effect_type}:duration=2:offset=60,format=yuv420p', video_output_path]
         cmd = ['ffmpeg', '-y'] + inputs + ['-filter_complex', f'{info_convert}{video_fades}', "-c:v", "libx264", "-crf", "20", video_output_path]
         print(f"----cmd: {cmd}")
-        subprocess.call(cmd)
+        subprocess.call(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         return {"success": True}
 
     def change_ratio(self, scale: list, video_input_path: str, video_output_path: str):
+        print(f"----running change_ratio----")
         cmd = ['ffmpeg', '-y', "-i", video_input_path, '-vf', f'scale={scale[0]}:{scale[1]}', video_output_path]
         print(f"----cmd: {cmd}")
-        subprocess.call(cmd)
+        subprocess.call(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         return {"success": True}
 
     def add_audio(self, video_input_path: str, list_audio_path: list, list_audio_time: list, audio_background_path: str, video_output_path: str):   #audio time in miliseconds
+        print(f"----running add_audio----")
         if len(list_audio_path)!=len(list_audio_time):
             return {"success": False, "error": "The number of time start and the number of audio path is not the same"}
         a_inputs = ["-i", video_input_path]
@@ -119,7 +126,7 @@ class VideoEditorWorker(object):
 
         cmd = ['ffmpeg', '-y'] + a_inputs + ['-filter_complex', f'{a_info}{a_ids}amix=inputs={len(list_audio_path)+1}[a]', '-map', '0:v', '-map', '[a]', "-c:v", "copy", "-c:a", "aac", "-shortest", video_output_path]
         print(f"----cmd: {cmd}")
-        subprocess.call(cmd)
+        subprocess.call(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         return {"success": True}
 
 if __name__=="__main__":
