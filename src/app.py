@@ -12,13 +12,18 @@ from fastapi.responses import StreamingResponse, JSONResponse
 from fastapi import FastAPI, Request, Depends, Body, HTTPException, status, Query, File, UploadFile, Form
 
 from libs.utils import *
-from multiprocess_worker import Config, MultiprocessWoker, DATAW, AIOKafkaProducer
+from multiprocess_worker import Config, MultiprocessWoker, AIOKafkaProducer
+
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 FILE = Path(__file__).resolve()
 ROOT = FILE.parents[0]
-PATH_LOG = f"{str(ROOT)}{os.sep}logs"
-PATH_STATIC = f"{str(ROOT)}{os.sep}static"
-PATH_TEMP = os.path.join(PATH_STATIC, "temp")
+# PATH_LOG = f"{str(ROOT)}{os.sep}logs"
+# PATH_STATIC = f"{str(ROOT)}{os.sep}static"
+# PATH_TEMP = os.path.join(PATH_STATIC, "temp")
+PATH_LOG = Config.PATH_LOG
+PATH_STATIC = Config.PATH_STATIC
+PATH_TEMP = Config.PATH_TEMP
 check_folder_exist(path_log=PATH_LOG, path_static=PATH_STATIC, path_temp=PATH_TEMP)
 # LOGGER_APP = set_log_file(file_name="app")
 
@@ -28,11 +33,20 @@ MULTIW = MultiprocessWoker()
 async def lifespan(app: FastAPI): 
     # Start the consumers
     consumer_tasks = []
-    for i in range(Config.NUM_CONSUMERS):
+    for i in range(Config.NUM_DATA_CONSUMERS):
+        consumer_id = f"data_{i}"
         consumer_task = asyncio.create_task(
-            MULTIW.process_data_consumer(consumer_id=0)
+            MULTIW.process_data_consumer(consumer_id=consumer_id)
         )
         consumer_tasks.append(consumer_task)
+        
+    for i in range(Config.NUM_QUERY_CONSUMERS):
+        consumer_id = f"query_{i}"
+        consumer_task = asyncio.create_task(
+            MULTIW.process_query_consumer(consumer_id=consumer_id)
+        )
+        consumer_tasks.append(consumer_task)
+
         
     # Create a producer for sending messages
     producer = AIOKafkaProducer(
@@ -43,11 +57,11 @@ async def lifespan(app: FastAPI):
     app.state.producer = producer
     
     # Create admin client kafka
-    kafka_client = AdminClient(Config.KAFKA_ADDRESS)
-    app.state.admin_client = kafka_client
+    kafka_client = AdminClient({'bootstrap.servers': Config.KAFKA_ADDRESS})
+    app.state.kafka_client = kafka_client
     
     yield
-    
+
     # Shutdown: Cancel all consumer tasks and stop the producer
     for task in consumer_tasks:
         task.cancel()

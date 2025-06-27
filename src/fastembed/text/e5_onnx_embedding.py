@@ -81,6 +81,16 @@ supported_multilingual_e5_models = [
         },
         "model_file": "onnx/model.onnx",
     },
+    {
+        "model": f"./weights/Vietnamese_Embedding",
+        "dim": 768,
+        "description": "Text embeddings, Unimodal (text), Multilingual (~50 languages), 384 input tokens truncation, Prefixes for queries/documents: not necessary, 2021 year",
+        "size_in_GB": 1.00,
+        "sources": {
+            "hf": "AITeamVN/Vietnamese_Embedding",
+        },
+        "model_file": "onnx/model.onnx",
+    },
 ]
 
 

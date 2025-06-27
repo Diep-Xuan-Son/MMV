@@ -8,6 +8,7 @@ if str(ROOT) not in sys.path:
 
 import os
 import torch
+import asyncio
 import soundfile as sf
 from StyleTTS2.inference import StyleTTS2
 
@@ -15,10 +16,10 @@ class TTS(object):
     def __init__(self, 
                  model_path: str="./weights/style_tts2/model.pth", 
                  config_path: str="./weights/style_tts2/config.yml",
-                 reference_path: list=[f"{DIR}/StyleTTS2/reference_audio/vn_3.wav"],
+                 reference_path: list=[f"{DIR}/StyleTTS2/reference_audio/vn_1.wav"],
                  nltk_data_path: str="./weights/nltk_data",
                  output_dir: str=f"{DIR}/static/audio_transcribe",
-                 device: str="cpu"):
+                 device: str="cuda"):
         self.model_path = model_path
         self.output_dir = output_dir
         self.speakers = {}
@@ -32,18 +33,22 @@ class TTS(object):
         self.device = 'cuda' if torch.cuda.is_available() and device!="cpu" else 'cpu'
         self.model = StyleTTS2(config_path, self.model_path, nltk_data_path).eval().to(self.device)
 
-    def __call__(self, text: str, u_id: str, default_speaker: str="[id_1]", avg_style: bool=True, stabilize: bool=True, denoise: float=0.6, n_merge: int=20):
-        with torch.no_grad():
-            styles = self.model.get_styles(self.speakers, denoise, avg_style)
-            r = self.model.generate(text, styles, stabilize, n_merge, default_speaker)
-            output_dir = os.path.join(self.output_dir, u_id)
-            if not os.path.exists(output_dir):
-                os.makedirs(output_dir)
-            n_file = len(os.listdir(output_dir))
-            output_dir = f"{output_dir}{os.sep}{n_file}.wav"
-            with open(output_dir, "wb") as f:
-                sf.write(f.name, r, 24000)
-            return output_dir
+    async def __call__(self, text: str, output_dir: str, default_speaker: str="[id_1]", avg_style: bool=True, stabilize: bool=True, denoise: float=0.6, n_merge: int=20):
+        def _synthesize(text, output_dir, default_speaker, avg_style, stabilize, denoise, n_merge):
+            with torch.no_grad():
+                styles = self.model.get_styles(self.speakers, denoise, avg_style)
+                r = self.model.generate(text, styles, stabilize, n_merge, default_speaker)
+                # output_dir = os.path.join(self.output_dir, u_id)
+                # if not os.path.exists(output_dir):
+                #     os.makedirs(output_dir)
+                n_file = len(os.listdir(output_dir))
+                output_dir = f"{output_dir}{os.sep}{n_file}.wav"
+                with open(output_dir, "wb") as f:
+                    sf.write(f.name, r, 24000)
+                return output_dir
+            
+        output_path = await asyncio.to_thread(_synthesize, text, output_dir, default_speaker, avg_style, stabilize, denoise, n_merge)
+        return output_path
 
 if __name__=="__main__":
     tts = TTS()
