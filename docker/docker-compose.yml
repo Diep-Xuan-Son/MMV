@@ -1,0 +1,345 @@
+x-shared-env: &shared-api-worker-env
+  REDISSERVER_URL: ${REDISSERVER_URL:-http://redis:6669}
+  REDISSERVER_PASSWORD: ${REDISSERVER_PASSWORD:-RedisAuth}
+
+  POSTGRES_URL: ${POSTGRES_URL:-http://postgres:5432}
+  POSTGRES_DBNAME: ${POSTGRES_DBNAME:-mmv}
+  POSTGRES_USER: ${POSTGRES_USER:-demo}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-demo123456}
+  TABLE_NAME: ${TABLE_NAME:-videos}
+
+  KAFKA_ADDRESS: ${KAFKA_ADDRESS:-broker1:29094}
+  TOPIC_DATA: ${TOPIC_DATA:-video_upload}
+  TOPIC_QUERY: ${TOPIC_QUERY:-user_query}
+  GROUP_ID_DATA: ${GROUP_ID_DATA:-data_consumer}
+  GROUP_ID_QUERY: ${GROUP_ID_QUERY:-query_consumer}
+
+  QDRANT_URL: ${QDRANT_URL:-http://qdrant:6333}
+  COLLECTION_NAME: ${COLLECTION_NAME:-mmv}
+
+  MINIO_URL: ${MINIO_URL:-minio:9000}
+  BUCKET_NAME: ${BUCKET_NAME:-data_mmv}
+  MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-demo}
+  MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-demo123456}
+
+  API_KEY_OPENAI: ${API_KEY_OPENAI:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhcGlfa2V5Ijoic2stcHJvai1QSDNHNnlMVEticmdvaU9ieTA4YlVMNHc0eVYxR3NJa25IeEltTl9VMFI1WmVsOWpKcDI0MzZuNUEwOTdVdTVDeXVFMDJha1RqNVQzQmxia0ZKX3dJTUw2RHVrZzh4eWtsUXdsMTN0b2JfcGVkV1c0T1hsNzhQWGVIcDhOLW1DNjY1ZE1CdUlLMFVlWEt1bzRRUnk2Ylk1dDNYSUEifQ.2qjUENU0rafI6syRlTfnKIsm6O4zuhHRqahUcculn8E}
+  API_KEY_GEM: ${API_KEY_GEM:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhcGlfa2V5IjoiQUl6YVN5Q1BKSHNJYUxXaGdMakllQkZVS3E4VHFrclRFdWhGd2xzIn0.7iN_1kRmOahYrT7i5FUplOYeda1s7QhYzk-D-AlgWgE}
+
+services:
+  qdrant:
+    image: qdrant/qdrant
+    container_name: mmv_qdrant
+    restart: always
+    environment:
+      - QDRANT__SERVICE__API_KEY=test_qdrant
+      - QDRANT__CLUSTER__ENABLED=true
+    ports: 
+      - "7000:6333"
+      - "7001:6334"
+    volumes:
+      - ./qdrant_storage:/qdrant/storage
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - bash -c ':> /dev/tcp/127.0.0.1/6333' || exit 1
+      interval: 5s
+      timeout: 5s
+      retries: 3
+    networks:
+      mynetwork:
+    profiles:
+      - qdrant
+    command: ["./qdrant", "--uri", "http://qdrant_primary:6335"] # Adding a Node? Use "uri" to connect to an existing cluster.
+    # command: ["./qdrant", "--bootstrap", "http://qdrant_primary:6335"] # New Cluster? Use 'bootstrap" to define the initial cluster structure.
+
+  minio:
+    image: quay.io/minio/minio
+    container_name: mmv_minio
+    restart: always
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-demo}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-demo123456}
+    ports: 
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - ./minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks:
+      mynetwork:
+    profiles:
+      - minio
+    command: server /data --address ":9000" --console-address ":9001"
+
+  redis:
+    image: redis/redis-stack:latest
+    container_name: mmv_redis
+    restart: always
+    environment:
+      - REDIS_ARGS=--requirepass root
+    ports: 
+      - "6669:6669"
+    volumes:
+      - ./redis_data:/data
+      - ./redis_config/redis1.conf:/usr/local/etc/redis/redis.conf
+    healthcheck:
+      test: [ "CMD", "redis-cli", "-p", "6669", "-a", "RedisAuth", "ping" ]
+    networks:
+      mynetwork:
+    profiles:
+      - redis
+    command: redis-server /usr/local/etc/redis/redis.conf
+
+  postgres:
+    image: postgres
+    container_name: mmv_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-demo}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-demo123456}
+      POSTGRES_DB: ${POSTGRES_DBNAME:-mmv}
+      PGDATA: /data/postgres
+    ports: 
+      - "6670:5432"
+    volumes:
+      - ./postgres_data:/data/postgres
+      - ./docker_postgres_init.sql:/docker-entrypoint-initdb.d/docker_postgres_init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      mynetwork:
+    profiles:
+      - postgres
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:latest
+    hostname: zookeeper
+    container_name: zookeeper_mmv
+    ports:
+      - "2188:2188"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2188
+      ZOOKEEPER_TICK_TIME: 2000
+    networks:
+      mynetwork:
+    healthcheck:
+      test: echo srvr | nc zookeeper 2188 || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    profiles:
+      - zookeeper
+
+  broker1:
+    image: confluentinc/cp-server:6.2.5
+    container_name: mmv_broker1
+    depends_on:
+      - zookeeper
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: "zookeeper:2188"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://broker1:29094,PLAINTEXT_HOST://localhost:9094
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1           # Replication factor for the offsets topic
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1   # Replication factor for transaction logs
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1              # Minimum in-sync replicas for transactional logs
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0           # Initial delay before consumer group rebalancing
+      KAFKA_NUM_PARTITIONS: 3                             # Default number of partitions for new topics
+      KAFKA_CONFLUENT_SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      # KAFKA_LOG_DIRS: /tmp/kraft-combined-logs
+    ports:
+      - "9094:9094"     # Port for Kafka broker
+    # volumes:
+    #   - ./kafka-data/broker1:/tmp/kraft-combined-logs
+    networks:
+      mynetwork:
+    healthcheck:
+      test: nc -z localhost 9094 || exit -1
+      interval: 10s
+      timeout: 50s
+      retries: 3
+    profiles:
+      - broker1
+    command: >
+      bash -c "
+        /etc/confluent/docker/run &  # Start Kafka in the background
+        sleep 15 &&  # Wait for Kafka to start
+        kafka-topics --create --if-not-exists --bootstrap-server localhost:9094 --replication-factor 1 --partitions 1 --topic video_upload --config retention.ms=7200000 --config cleanup.policy=delete --config max.message.bytes=10485760 && \  # 10 MB
+        kafka-topics --create --if-not-exists --bootstrap-server localhost:9094 --replication-factor 1 --partitions 1 --topic user_query --config retention.ms=7200000 --config cleanup.policy=delete --config max.message.bytes=5242880 && \  # 5 MB
+        wait
+      "
+
+  # Store Avro schemas for topics to ensure schema compatibility
+  schema-registry:
+    image: confluentinc/cp-schema-registry:latest
+    container_name: mmv_schema
+    depends_on:
+      broker1:
+        condition: service_healthy
+    ports:
+      - "8081:8081"
+    healthcheck:
+      start_period: 10s
+      interval: 10s
+      retries: 20
+      test: curl --user superUser:superUser --fail --silent --insecure http://localhost:8081/subjects --output /dev/null || exit 1
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: 'broker1:29094'
+      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
+    networks:
+      mynetwork:
+    profiles:
+      - schema
+
+  control-center:
+    image: confluentinc/cp-enterprise-control-center:latest
+    container_name: mmv_control_center
+    depends_on:
+      broker1:
+        condition: service_healthy
+      # schema-registry:
+      #   condition: service_healthy
+    ports:
+      - "9021:9021"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9021/healthcheck"] # Adjust the URL and options as needed
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    environment:
+      CONTROL_CENTER_BOOTSTRAP_SERVERS: 'broker1:29094'
+      # CONTROL_CENTER_CONNECT_CONNECT-DEFAULT_CLUSTER: 'debezium:8083'
+      CONTROL_CENTER_SCHEMA_REGISTRY_URL: "http://schema-registry:8081"
+      # How many copies for control-center internal topics
+      CONTROL_CENTER_REPLICATION_FACTOR: 1
+      # Number of partitions for control-center internal topics
+      CONTROL_CENTER_INTERNAL_TOPICS_PARTITIONS: 1
+      # CONTROL_CENTER_MONITORING_INTERCEPTOR_TOPIC_PARTITIONS: 1
+      # Health check endpoint to monitor status of connectors
+      CONTROL_CENTER_CONNECT_HEALTHCHECK_ENDPOINT: '/connectors'
+      # How many copies for confluent metrics topics
+      CONFLUENT_METRICS_TOPIC_REPLICATION: 1
+      PORT: 9021
+      CONTROL_CENTER_REST_LISTENERS: "http://0.0.0.0:9021"
+    networks:
+      mynetwork:
+    profiles:
+      - cc
+
+  # kafka2:
+  #   image: confluentinc/cp-kafka:latest
+  #   container_name: kafka2
+  #   environment:
+  #     KAFKA_NODE_ID: 2
+  #     KAFKA_PROCESS_ROLES: broker,controller               # The node acts as both broker and controller
+  #     KAFKA_LISTENERS: PLAINTEXT://kafka2:9096,CONTROLLER://kafka2:9097  # Ports for broker and controller
+  #     KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka2:9096                  # External listener for clients
+  #     KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER         # Listener name for inter-controller communication
+  #     KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+  #     KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT  # Security protocol for listeners
+  #     KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka2:9095, 2@kafka2:9097    # Quorum voters for the controller in KRaft mode
+  #     KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 2           # Replication factor for the offsets topic
+  #     KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 2   # Replication factor for transaction logs
+  #     KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1              # Minimum in-sync replicas for transactional logs
+  #     KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0           # Initial delay before consumer group rebalancing
+  #     KAFKA_NUM_PARTITIONS: 3                             # Default number of partitions for new topics
+  #     KAFKA_LOG_DIRS: /tmp/kraft-combined-logs
+  #   ports:
+  #     - "9096:9096"     # Port for Kafka broker
+  #   volumes:
+  #     - ./kafka-data/kafka2:/tmp/kraft-combined-logs
+  #   networks:
+  #     mynetwork:
+  #   healthcheck:
+  #     test:
+  #       [
+  #         "CMD-SHELL",
+  #         "./opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9096 > /dev/null 2>&1",
+  #       ]
+  #     interval: 10s
+  #     timeout: 10s
+  #     retries: 5
+  #   profiles:
+  #     - kafka2
+
+  mmv:
+    image: dixuson/mmv
+    container_name: mmv
+    restart: always
+    environment:
+      REDISSERVER_URL: ${REDISSERVER_URL:-http://redis:6669}
+      REDISSERVER_PASSWORD: ${REDISSERVER_PASSWORD:-RedisAuth}
+
+      POSTGRES_URL: ${POSTGRES_URL:-http://postgres:5432}
+      POSTGRES_DBNAME: ${POSTGRES_DBNAME:-mmv}
+      POSTGRES_USER: ${POSTGRES_USER:-demo}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-demo123456}
+      TABLE_NAME: ${TABLE_NAME:-videos}
+
+      KAFKA_ADDRESS: ${KAFKA_ADDRESS:-broker1:29094}
+      TOPIC_DATA: ${TOPIC_DATA:-video_upload}
+      TOPIC_QUERY: ${TOPIC_QUERY:-user_query}
+      GROUP_ID_DATA: ${GROUP_ID_DATA:-data_consumer}
+      GROUP_ID_QUERY: ${GROUP_ID_QUERY:-query_consumer}
+
+      QDRANT_URL: ${QDRANT_URL:-http://qdrant:6333}
+      COLLECTION_NAME: ${COLLECTION_NAME:-mmv}
+
+      MINIO_URL: ${MINIO_URL:-minio:9000}
+      BUCKET_NAME: ${BUCKET_NAME:-data_mmv}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-demo}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-demo123456}
+
+      API_KEY_OPENAI: ${API_KEY_OPENAI:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhcGlfa2V5Ijoic2stcHJvai1QSDNHNnlMVEticmdvaU9ieTA4YlVMNHc0eVYxR3NJa25IeEltTl9VMFI1WmVsOWpKcDI0MzZuNUEwOTdVdTVDeXVFMDJha1RqNVQzQmxia0ZKX3dJTUw2RHVrZzh4eWtsUXdsMTN0b2JfcGVkV1c0T1hsNzhQWGVIcDhOLW1DNjY1ZE1CdUlLMFVlWEt1bzRRUnk2Ylk1dDNYSUEifQ.2qjUENU0rafI6syRlTfnKIsm6O4zuhHRqahUcculn8E}
+      API_KEY_GEM: ${API_KEY_GEM:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhcGlfa2V5IjoiQUl6YVN5Q1BKSHNJYUxXaGdMakllQkZVS3E4VHFrclRFdWhGd2xzIn0.7iN_1kRmOahYrT7i5FUplOYeda1s7QhYzk-D-AlgWgE}
+    build:
+      dockerfile: Dockerfile_controller
+    ports: 
+      - "8385:8385"
+      - "8386:8386"
+    depends_on:
+      redis:
+        condition: service_started
+      broker1:
+        condition: service_healthy
+      postgres:
+        condition: service_started
+      minio:
+        condition: service_started
+      qdrant:
+        condition: service_started
+    volumes:
+      - ./static:/app/static
+      - ./src:/workspace/
+      - ./logs:/app/logs
+    networks:
+      mynetwork:
+    profiles:
+      - mmv
+    # command: sh -c "uvicorn --workers 1 --host 0.0.0.0 --port 8386 controller:app"
+    command: sh -c "nohup streamlit run test/test_ui.py --server.address 0.0.0.0 --server.port 8385 > ./logs/streamlit.log 2>&1 & uvicorn --workers 1 --host 0.0.0.0 --port 8386 controller:app"
+    deploy:
+      resources:
+        reservations:
+          devices:
+          - driver: nvidia
+            device_ids: ['0']
+            capabilities: [gpu]
+
+
+networks:
+  mynetwork:
+    driver: bridge
+
+# docker compose -f docker-compose.yml --profile dev1 up -d
+# docker compose -f docker-compose.yml --profile "*" up -d
+# docker compose -f docker-compose.yml --profile triton_server up -d

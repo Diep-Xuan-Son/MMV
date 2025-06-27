@@ -1,3 +1,4 @@
+import re
 import cv2
 import jwt
 import time
@@ -8,7 +9,7 @@ import re as regex
 from libs.utils import MyException
 from pydantic import BaseModel, Field
 from langchain_openai import ChatOpenAI
-from lighthouse.models import CGDETRPredictor
+# from lighthouse.models import CGDETRPredictor
 from typing import Literal, Tuple, List, Dict, Union
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -18,8 +19,9 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 class HighlightWorker(object):
     def __init__(self, scene_dict: dict, model_hl='./weights/model_highlight.ckpt', model_slowfast='./weights/SLOWFAST_8x8_R50.pkl', model_clip='./weights/ViT-B-32.pt',):
         device = "cuda" if torch.cuda.is_available() else "cpu"
-        self.model = CGDETRPredictor(model_hl, device=device,
-                        feature_name='clip_slowfast', slowfast_path=model_slowfast, clip_path=model_clip)
+        print(f"----device: {device}")
+        # self.model = CGDETRPredictor(model_hl, device=device,
+        #                 feature_name='clip_slowfast', slowfast_path=model_slowfast, clip_path=model_clip)
         self.scene_dict = scene_dict
     
     def get_image_from_timestamp(self, video_path: str, timestamp: int):
@@ -31,7 +33,38 @@ class HighlightWorker(object):
             return frame
         return None
     
-    def get_description(self, llm: object, image: str, query: str):
+    async def get_advanced_query(self, llm: object, query: str):
+        def OutputStructured(BaseModel):
+            f"""Format the response as JSON with key is {list(self.scene_dict.keys())} and value is the advanced query."""
+            result: dict = Field(description="keys and advanced queries")
+            
+        prompt = """
+        The user's query: {query}
+        Scenes and their descriptions: {scene_dict}
+        
+        ## TASKS
+        - Based on the definitions of scenes below and the user's query, rewrite an advanced query for each specific scene. 
+        - Advanced query need to get full information of the user's query
+        
+        Format the response as JSON like below: 
+        {{
+            <name of key>: <advanced query>,
+        }}
+        """
+        structured_output = llm.with_structured_output(OutputStructured)
+        chat_prompt = ChatPromptTemplate.from_messages(
+            [
+                SystemMessage(content="You are a marketing expert"),
+                HumanMessage(content=prompt.format(query=query, scene_dict=self.scene_dict))
+                # HumanMessage(content=prompt)
+            ]
+        )
+        chain = chat_prompt | structured_output 
+        result = await chain.ainvoke({})
+        print(result)
+        return result
+    
+    async def get_description(self, llm: object, video_path: str, timestamp: int, query: str):
         def OutputStructured(BaseModel):
             """Format the response as JSON with these fields: description, viralPotential, suggestedTitle, suggestedHashtags."""
             description_vi: str = Field(description="")
@@ -39,6 +72,7 @@ class HighlightWorker(object):
             suggestedTitle_vi: str = Field(description="")
             suggestedHashtags_vi: List[str] = Field(description="")
 
+        image = self.get_image_from_timestamp(video_path, timestamp)
         _, buffer = cv2.imencode('.png', image)
         base64Image = base64.b64encode(buffer).decode('utf-8')
         prompt = """
@@ -69,11 +103,14 @@ class HighlightWorker(object):
         ])
 
         chain = prompt | llm 
-        response = chain.invoke({})
+        response = await chain.ainvoke({})
         pattern = r'{.*}'
         clean_answer = regex.findall(pattern, response.content.replace("```", "").strip(), regex.DOTALL)
         if isinstance(clean_answer, list):
-            clean_answer = clean_answer[0]
+            if len(clean_answer):
+                clean_answer = clean_answer[0]
+            else:
+                clean_answer = '{"description_vi": ""}'
         result = eval(clean_answer)
         return result
 
@@ -114,8 +151,136 @@ class HighlightWorker(object):
         result = chain.invoke({})
         print(result)
         return result
+    
+    async def select_matching_description(self, llm: object, descriptions: dict, query: str):
+        def OutputStructured(BaseModel):
+            """Format the response as JSON with key is the scene name and value is the video ID of the most reasonable description in each scene"""
+            result: dict = Field(description="scene name and video ID")
+            
+        prompt = """
+        The user's query: {query}
+        The scene descriptions: {descriptions}
+        
+        ## TASKS
+        - Based on the user's query, select the most reasonable description that matches with the demand of the user in each scene.
+        """
+        # - Only select the most relevant pairs of scene and video description so that each scene just has an id video
+        structured_output = llm.with_structured_output(OutputStructured)
+        chat_prompt = ChatPromptTemplate.from_messages(
+            [
+                SystemMessage(content="You are a review expert that analyze the video description and classify in appropriate scene"),
+                HumanMessage(content=prompt.format(query=query, descriptions=descriptions))
+                # HumanMessage(content=prompt)
+            ]
+        )
+        chain = chat_prompt | structured_output 
+        result = await chain.ainvoke({})
+        print(result)
+        return result
+    
+    async def rewrite_description_rely_on_overview(self, llm: object, descriptions: dict, overview: str):
+        def OutputStructured(BaseModel):
+            """Format the response as JSON with value is new description and key is video ID"""
+            result: dict = Field(description="video ID and new description")
+   
+        prompt = """
+        The overview: {overview}
+        Video IDs and their descriptions: {descriptions}
 
-    def choose_scene(self, llm: object, descriptions: str):
+        Based on the overview, rewrite a new description that is more reasonable for each video
+  
+        The new description is in Vietnamese 
+        """
+        # If in desciption having english word, please convert all english word to type: [en-us]{{<english word>}}. Example: massage converts to [en-us]{{massage}}
+        structured_output = llm.with_structured_output(OutputStructured)
+        chat_prompt = ChatPromptTemplate.from_messages(
+            [
+                SystemMessage(content="You are a marketing expert"),
+                HumanMessage(content=prompt.format(overview=overview, descriptions=descriptions))
+            ]
+        )
+        chain = chat_prompt | structured_output 
+        result = await chain.ainvoke({})
+        print(result)
+        return result
+    
+    async def rewrite_description(self, llm: object, descriptions: dict, query: str):
+        def OutputStructured(BaseModel):
+            """Format the response as JSON with value is a dictionary including scene name and new description"""
+            result: dict = Field(description="scene name and new description")
+   
+        prompt = """
+        The user's query: {query}
+  
+        Scene name and their descriptions: {descriptions}
+
+        Doing these tasks below to make a good marketing video:
+        - Based on the user's query rewriting the new description for these scenes to make a introducing video. 
+        - Using conjunctions in the new desciptions to form a cohesive introduce paragraph.
+  
+        ## RULE 
+        Format the response as JSON type like below:
+        {{
+            <scene name>: <new description>
+        }}
+        Let's INTRODUCE, don't DESCRIBE
+        The number of words in each description is under 80 words
+        The new description is in Vietnamese 
+        """
+        # If in desciption having english word, please convert all english word to type: [en-us]{{<english word>}}. Example: massage converts to [en-us]{{massage}}
+        structured_output = llm.with_structured_output(OutputStructured)
+        chat_prompt = ChatPromptTemplate.from_messages(
+            [
+                SystemMessage(content="You are a marketing expert that analyze these video descriptions below and select some descriptions to make a good marketing video."),
+                HumanMessage(content=prompt.format(query=query, descriptions=descriptions))
+            ]
+        )
+        chain = chat_prompt | structured_output 
+        result = await chain.ainvoke({})
+        # print(result)
+        return result
+    
+    def get_matching_description2(self, llm: object, descriptions: dict, query: str):
+        def OutputStructured(BaseModel):
+            """Format the response as JSON with 2 levels. At level 1 value is a dictionary level 2 and key is the scene name. At level 2 value is a new description and key is the id video of those most reasonable description in each scene"""
+            result: dict = Field(description="")
+   
+        prompt = """
+        The user's query: {query}
+  
+        Scene name and their descriptions: {descriptions}
+
+        Doing these tasks below to make a good marketing video:
+        - Based on the user's query, you have to analyze, grading score and select the most reasonable description for each scene for making a introducing video.
+        - Rewriting the new description for these matching scene. 
+        - Using conjunctions in the new desciptions to form a cohesive introduce paragraph.
+  
+        ## RULE 
+        Format the response as JSON type like below:
+        {{
+            <scene name>: {{
+                <id video>: <new description>
+            }}
+        }}
+        Let's INTRODUCE, don't DESCRIBE
+        The number of words in each description is under 80 words
+        The new description is in Vietnamese 
+          """
+        # If in desciption having english word, please convert all english word to type: [en-us]{{<english word>}}. Example: massage converts to [en-us]{{massage}}
+        structured_output = llm.with_structured_output(OutputStructured)
+        chat_prompt = ChatPromptTemplate.from_messages(
+            [
+                SystemMessage(content="You are a marketing expert that analyze these video descriptions below and select some descriptions to make a good marketing video."),
+                HumanMessage(content=prompt.format(query=query, descriptions=descriptions))
+                # HumanMessage(content=prompt)
+            ]
+        )
+        chain = chat_prompt | structured_output 
+        result = chain.invoke({})
+        print(result)
+        return result
+
+    async def choose_scene(self, llm: object, descriptions: str, category: str):
         def OutputStructured(BaseModel):
             """Format the response as JSON with key is the id video and value is the name of scene"""
             result: dict = Field(description="id video and name of scene")
@@ -126,23 +291,29 @@ class HighlightWorker(object):
         ## TASKS
         - Based on the definitions of scenes below, select the best scene that matches with each video description.
 
-        Scenes and their descriptions: {scene_dict}
+        Scenes and their definitions: {scene_dict}
         """
+        if not category:
+            scene_dict = self.scene_dict
+        else:
+            list_category = regex.sub(r",\s+", ",", category).split(",")
+            scene_dict = {k:v for k, v in self.scene_dict.items() if k in list_category}
         # - Only select the most relevant pairs of scene and video description so that each scene just has an id video
         structured_output = llm.with_structured_output(OutputStructured)
         chat_prompt = ChatPromptTemplate.from_messages(
             [
-                SystemMessage(content="You are a review expert that analyze the video description and classify in  appropriate scene"),
-                HumanMessage(content=prompt.format(descriptions=descriptions, scene_dict=self.scene_dict))
+                SystemMessage(content="You are a review expert that analyze the video description and classify in appropriate scene"),
+                HumanMessage(content=prompt.format(descriptions=descriptions, scene_dict=scene_dict))
                 # HumanMessage(content=prompt)
             ]
         )
         chain = chat_prompt | structured_output 
-        result = chain.invoke({})
+        result = await chain.ainvoke({})
         print(result)
         return result
     
-    def choose_description4scene(self, llm: object, descriptions: dict):
+    
+    async def choose_description4scene(self, llm: object, descriptions: dict):
         def OutputStructured(BaseModel):
             """Format the response as JSON with key is the scene name, and value is the video id of the most relevant description"""
             result: dict = Field(description="scene name and video id")
@@ -164,11 +335,11 @@ class HighlightWorker(object):
             ]
         )
         chain = chat_prompt | structured_output 
-        result = chain.invoke({})
+        result = await chain.ainvoke({})
         print(result)
         return result
     
-    def write_overall_description(self, llm: object, description_parts: dict):
+    async def write_overall_description(self, llm: object, description_parts: dict):
         def OutputStructured(BaseModel):
             """Format the response as JSON with key is 'result' and value is the overall description"""
             result: str = Field(description="the overall description")
@@ -185,18 +356,19 @@ class HighlightWorker(object):
         chat_prompt = ChatPromptTemplate.from_messages(
             [
                 SystemMessage(content="You are a review expert that analyzes descriptions and select the most relevant description"),
-                HumanMessage(content=prompt.format(descriptions=description_parts, scene_dict=self.scene_dict))
+                HumanMessage(content=prompt.format(descriptions=description_parts))
                 # HumanMessage(content=prompt)
             ]
         )
         chain = chat_prompt | structured_output 
-        result = chain.invoke({})
+        result = await chain.ainvoke({})
         print(result)
         return result
         
     @MyException()
     def __call__(self, query, video_path):
         print(f"----video_path: {video_path}")
+        return {"success": False}
         self.model.encode_video(video_path)
         prediction = self.model.predict(query)
         return {"success": True,"result": prediction}
@@ -276,9 +448,9 @@ if __name__=="__main__":
     token = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhcGlfa2V5Ijoic2stcHJvai1QSDNHNnlMVEticmdvaU9ieTA4YlVMNHc0eVYxR3NJa25IeEltTl9VMFI1WmVsOWpKcDI0MzZuNUEwOTdVdTVDeXVFMDJha1RqNVQzQmxia0ZKX3dJTUw2RHVrZzh4eWtsUXdsMTN0b2JfcGVkV1c0T1hsNzhQWGVIcDhOLW1DNjY1ZE1CdUlLMFVlWEt1bzRRUnk2Ylk1dDNYSUEifQ.2qjUENU0rafI6syRlTfnKIsm6O4zuhHRqahUcculn8E'
     API_KEY = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])["api_key"]
 
-    descriptions2_list = list(descriptions2.items())
-    random.shuffle(descriptions2_list)
-    descriptions2 = dict(descriptions2_list)
+    # descriptions2_list = list(descriptions2.items())
+    # random.shuffle(descriptions2_list)
+    # descriptions2 = dict(descriptions2_list)
     llm = ChatOpenAI(
                 model="gpt-4o-mini",
                 temperature=0,
@@ -295,8 +467,44 @@ if __name__=="__main__":
 
     # result = hl.choose_scene(llm, descriptions=descriptions2)
     
-    result = hl.write_overall_description(llm, description_parts=descriptions2)
+    # result = hl.write_overall_description(llm, description_parts=descriptions2)
+    
+    query = "cho tôi video giới thiệu về MQ spa với không gian sang trọng, màu vàng kim, logo hình MQ và các nhân viên chuyên nghiệp mặc đồng phục màu cam"
+    result = hl.get_advanced_query(llm, query=query)
     exit()
+    
+    # # ----test rewrite description----
+    # descriptions3 = {}
+    # descriptions4 = {}
+    # descriptions5 = {}
+    # for i, (k,v) in enumerate(descriptions2.items()):
+    #     if i < 4:
+    #         descriptions3[f"video_{i}"] = v
+    #     elif 3 < i < 8:
+    #         descriptions4[f"video_{i-4}"] = v
+    #     else:
+    #         descriptions5[f"video_{i-8}"] = v
+    
+    # descriptions4 = {
+    #     "opening_scene": descriptions3,
+    #     "reception_scene": descriptions4,
+    #     "consultation_scene": descriptions5,
+    #     "service_scene": descriptions3,
+    #     "interior_scene": descriptions4,
+    #     "staff_scene": descriptions5,
+    #     "customer_scene": descriptions3,
+    #     "product_scene": descriptions4,
+    #     "closing_scene": descriptions5
+    # }
+    # result = hl.select_matching_description(llm, descriptions4, query)
+    
+    # descriptions5 = {}
+    # for k,v in result.items():
+    #     descriptions5[k] = descriptions4[k][v]
+    # print(descriptions5)
+    # result = hl.rewrite_description(llm, descriptions5, query)
+    # exit()
+    # #////////////////////////////////////////////////////
     
     # descriptions = {"service_scene": ['Cảnh này cho thấy cận cảnh quá trình cấy tóc bằng phương pháp SMP (Scalp Micropigmentation). Sự tỉ mỉ trong từng thao tác và kết quả tự nhiên mà nó mang lại có thể thu hút sự chú ý của những người đang tìm kiếm giải pháp cho vấn đề rụng tóc. Thương hiệu có thể nhấn mạnh vào tính chuyên nghiệp và hiệu quả của dịch vụ.', 'Hình ảnh cho thấy một người phụ nữ đang tận hưởng liệu pháp mát-xa mặt tại Sancy Spa. Sự tập trung vào sự thư giãn và chăm sóc bản thân làm cho nó trở nên hấp dẫn, đặc biệt là đối với những người quan tâm đến sức khỏe và sắc đẹp.', 'Cảnh này cho thấy một quy trình chăm sóc da chuyên nghiệp, trong đó một người đang được thoa bùn lên chân. Sự tỉ mỉ trong từng động tác và kết cấu của bùn tạo nên một trải nghiệm thị giác hấp dẫn, gợi cảm giác thư giãn và làm đẹp. Đây là cơ hội tuyệt vời để giới thiệu các sản phẩm và dịch vụ spa cao cấp, nhấn mạnh vào lợi ích của việc chăm sóc da chuyên sâu.', 'Cảnh này cho thấy một người phụ nữ đang nằm trên giường điều trị, có lẽ là để làm đẹp hoặc trị liệu sức khỏe. Sự tương tác giữa bệnh nhân và thiết bị công nghệ cao có thể thu hút sự chú ý của những người quan tâm đến các phương pháp làm đẹp và chăm sóc sức khỏe tiên tiến.', 'Cảnh này giới thiệu một người phụ nữ trong chiếc áo trắng giản dị, đứng trước một khung cảnh bãi biển tươi mát với cây cối và kiến trúc hiện đại. Sự kết hợp giữa phong cách cá nhân và không gian xung quanh tạo nên một hình ảnh thu hút, phù hợp để quảng bá các sản phẩm thời trang hoặc phong cách sống.'], "interior_scene": ['Cảnh này giới thiệu một người phụ nữ đang thư giãn trong một bể nổi, được chiếu sáng bằng ánh sáng xanh và tím dịu nhẹ. Sự kết hợp giữa công nghệ hiện đại và sự thư giãn sâu sắc tạo nên một hình ảnh hấp dẫn, gợi ý về một trải nghiệm độc đáo và sang trọng.', 'Cảnh này giới thiệu một người phụ nữ đang thiền trong một bể nổi, được chiếu sáng bằng ánh sáng màu xanh lam và tím dịu nhẹ. Sự kết hợp giữa sự yên bình và màu sắc độc đáo tạo nên một hình ảnh hấp dẫn, hoàn hảo để quảng bá các dịch vụ chăm sóc sức khỏe và thư giãn.', 'Hình ảnh cận cảnh một người phụ nữ đang thiền định trong môi trường ánh sáng dịu nhẹ, tạo cảm giác thư thái và tĩnh lặng. Đây là khoảnh khắc lý tưởng để giới thiệu các sản phẩm hoặc dịch vụ liên quan đến sức khỏe tinh thần, thiền định, hoặc các liệu pháp thư giãn.', "Cảnh này giới thiệu một không gian độc đáo có tên là 'Rainfall Room', nơi người xem có thể trải nghiệm cảm giác đứng giữa cơn mưa mà không bị ướt. Sự tương phản giữa hiệu ứng mưa và khả năng giữ khô tạo nên một trải nghiệm thị giác hấp dẫn và đầy tò mò.", 'Cảnh này giới thiệu một người phụ nữ trong chiếc áo trắng giản dị, đứng trước một khung cảnh bãi biển tươi mát với cây cối và kiến trúc hiện đại. Sự kết hợp giữa phong cách cá nhân và không gian xung quanh tạo nên một hình ảnh thu hút, phù hợp để quảng bá các sản phẩm thời trang hoặc phong cách sống.', 'Cảnh này cho thấy cận cảnh quá trình cấy tóc bằng phương pháp SMP (Scalp Micropigmentation). Sự tỉ mỉ trong từng thao tác và kết quả tự nhiên mà nó mang lại có thể thu hút sự chú ý của những người đang tìm kiếm giải pháp cho vấn đề rụng tóc. Thương hiệu có thể nhấn mạnh vào tính chuyên nghiệp và hiệu quả của dịch vụ.'],"product_scene": ['Hình ảnh này giới thiệu các lợi ích sức khỏe đa dạng mà thương hiệu của bạn cung cấp, từ phục hồi chấn thương và giảm đau nhức đến cải thiện các vấn đề về da và hỗ trợ giảm cân. Sự đa dạng này có thể thu hút nhiều đối tượng khác nhau.']}
     descriptions = {
@@ -318,6 +526,7 @@ if __name__=="__main__":
         }
     }
     result = hl.choose_description4scene(llm, descriptions=descriptions)
+    
  
 # {
 #     "video_0": 'Cảnh này cho thấy cận cảnh quá trình cấy tóc bằng phương pháp SMP (Scalp Micropigmentation). Sự tỉ mỉ trong từng thao tác và kết quả tự nhiên mà nó mang lại có thể thu hút sự chú ý của những người đang tìm kiếm giải pháp cho vấn đề rụng tóc. Thương hiệu có thể nhấn mạnh vào tính chuyên nghiệp và hiệu quả của dịch vụ.', 

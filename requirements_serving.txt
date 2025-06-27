@@ -1,0 +1,9 @@
+uvicorn
+fastapi
+python-multipart
+gunicorn
+
+#-----for authentication-----
+pyjwt
+passlib
+bcrypt==4.0.1
