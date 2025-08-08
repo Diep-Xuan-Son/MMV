@@ -1,8 +1,7 @@
 __pycache__/
-# __pycache__/*
 data_test/
 results/
-static/
+docker/static/
 weights/
 data_storage/
 logs/
@@ -14,5 +13,7 @@ qdrant_storage/
 redis_data/
 kafka-data/
 fastembed_cache
+
+static/
 
 # git rm --ignore-unmatch --cached */__pycache__/*

@@ -10,7 +10,7 @@ from app import *
 from langchain_core.prompts import ChatPromptTemplate
 from prompts import PROMPT_CHOOSE_TOOL, PROMPT_ANSWER, PROMPT_GET_MEMORY
 from langchain_core.messages import HumanMessage, SystemMessage
-from models import Topic, ProduceInput, InputDataWorker, InputQueryWorker, Status, VideoId, field
+from models import Topic, ProduceInput, InputDataWorker, InputQueryWorker, Status, VideoId, field, InputRoute, InputScenario, InputUpdateScenario
 
 @app.post("/api/uploadData")
 @HTTPException() 
@@ -20,6 +20,14 @@ async def uploadData(inputs: ProduceInput = Depends(ProduceInput), video_file: U
     if list_session_id is not None:
         if inputs.sess_id in list_session_id:
             return JSONResponse(status_code=409, content=str(f"The session_id is duplicated!"))
+        
+    content_type = file.content_type
+    if content_type in ["image/jpg", "image/jpeg", "image/png"]:
+        file_type = "image"
+    elif content_type in ["video/mp4", "video/quicktime"]:
+        file_type = "video"
+    else:
+        return JSONResponse(status_code=500, content=str(f"Unsupported file type!"))
     
     v_id = f"{uuid.uuid4()}_{round(time.time())}".replace('-','_')
     
@@ -48,7 +56,7 @@ async def uploadData(inputs: ProduceInput = Depends(ProduceInput), video_file: U
             output_precut_path = f"{os.path.splitext(path_file)[0]}_precut_{i}{os.path.splitext(path_file)[1]}"
             await MULTIW.VM.vew.split(u_id=inputs.sess_id, start_time=i*600, duration=600, video_input_path=path_file, output_path=output_precut_path, mute=False, fast=True)
             # Create a Kafka producer instance
-            message = InputDataWorker(sess_id=inputs.sess_id, v_id=v_id, name=name_v_precut, path_file=output_precut_path, overview=inputs.overview, category=inputs.category)
+            message = InputDataWorker(sess_id=inputs.sess_id, v_id=v_id, name=name_v_precut, path_file=output_precut_path, overview=inputs.overview, category=inputs.category, scenario_name=inputs.scenario_name)
             await producer.send_and_wait(
                 inputs.topic_name,
                 value=message.__dict__,
@@ -64,7 +72,7 @@ async def uploadData(inputs: ProduceInput = Depends(ProduceInput), video_file: U
             path_file = output_precut_path
     
     # Create a Kafka producer instance
-    message = InputDataWorker(sess_id=inputs.sess_id, v_id=v_id, name=name_v, path_file=path_file, overview=inputs.overview, category=inputs.category, mute=inputs.mute)
+    message = InputDataWorker(sender_id=inputs.sender_id, sess_id=inputs.sess_id, v_id=v_id, name=name_v, path_file=path_file, overview=inputs.overview, category=inputs.category, mute=inputs.mute, scenario_name=inputs.scenario_name, file_type=file_type)
     await producer.send_and_wait(
         inputs.topic_name,
         value=message.__dict__,
@@ -149,7 +157,7 @@ async def deleteTask(inputs: Status = Body(...)): # Use this when task done or p
                 if res["success"]:
                     if res["result"]["status"] == "deleted":
                         delete_folder_exist(*res["result"]["result"]["local_path_delete"])
-                        MULTIW.VM.dataw.delete_file_bucket(bucket_name=Config.BUCKET_NAME, folder_name=Config.COLLECTION_NAME, list_file_name=res["result"]["result"]["minio_path_delete"])
+                        MULTIW.VM.dataw.delete_file_bucket(bucket_name=Config.BUCKET_NAME, folder_name=os.path.dirname(res["result"]["result"]["minio_path_delete"]), list_file_name=res["result"]["result"]["minio_path_delete"])
                         MULTIW.VM.dataw.delete_vector(collection_name=Config.COLLECTION_NAME, list_v_id=res["result"]["result"]["v_id_delete"])
                         break
                 await asyncio.sleep(1)
@@ -169,14 +177,14 @@ async def deleteTask(inputs: Status = Body(...)): # Use this when task done or p
 @HTTPException() 
 async def deleteVideo(inputs: VideoId = Body(...)):
     print(inputs)
-    columns = ["root_path", "paths"]
+    columns = ["root_path", "paths", "scenario_name"]
     res = MULTIW.VM.dataw.get_row(MULTIW.cur, inputs.table_name, columns, inputs.v_ids)
     if res["success"]:
         list_paths = [eval(s) for s in res["result"]["paths"]]
         list_paths = list(chain.from_iterable(list_paths))
         # minio_path_delete = list_paths + res["result"]["root_path"]
-        MULTIW.VM.dataw.delete_file_bucket(bucket_name=Config.BUCKET_NAME, folder_name=Config.COLLECTION_NAME, list_file_name=list_paths)
-        MULTIW.VM.dataw.delete_file_bucket(bucket_name=Config.BUCKET_NAME, folder_name=f"{Config.COLLECTION_NAME}_backup", list_file_name=res["result"]["root_path"])
+        MULTIW.VM.dataw.delete_file_bucket(bucket_name=Config.BUCKET_NAME, folder_name=f'{res["result"]["scenario_name"]}{os.sep}{Config.COLLECTION_NAME}', list_file_name=list_paths)
+        MULTIW.VM.dataw.delete_file_bucket(bucket_name=Config.BUCKET_NAME, folder_name=f'{res["result"]["scenario_name"]}{os.sep}{Config.COLLECTION_NAME}_backup', list_file_name=res["result"]["root_path"])
         MULTIW.VM.dataw.delete_vector(collection_name=Config.COLLECTION_NAME, list_v_id=inputs.v_ids)
         
         MULTIW.VM.dataw.cur.execute(
@@ -189,71 +197,77 @@ async def deleteVideo(inputs: VideoId = Body(...)):
 
 @app.post("/api/checkCreateVideo")
 @HTTPException() 
-async def checkCreateVideo(inputs: InputQueryWorker = Body(...)):
+async def checkCreateVideo(inputs: InputRoute = Body(...)):
     old_memory = []
-    if MULTIW.VM.dataw.redisClient.exists(inputs.sess_id):
-        old_memory = json.loads(MULTIW.VM.dataw.redisClient.hget(inputs.sess_id, MULTIW.VM.dataw.dbmemory_name))
+    if MULTIW.VM.dataw.redisClient.exists(inputs.sender_id):
+        old_memory = json.loads(MULTIW.VM.dataw.redisClient.hget(inputs.sender_id, MULTIW.VM.dataw.dbmemory_name))
     print(f"----old_memory: {old_memory}")
     print(inputs.query)
-    print(inputs.sess_id)
+    print(inputs.sender_id)
     #-------------------------------------------------------
-    def OutputStructured(BaseModel):
-        """Format the response as JSON including the response of chatbot, with key is 'tool'"""
-        # response: str = field(description="the response of chatbot to answer the user's query")
-        # create_video: bool = field(description="the flag to check creating video or not")
-            
-    prompt = PROMPT_CHOOSE_TOOL
-    structured_output = MULTIW.VM.openai.with_structured_output(OutputStructured)
-    chat_prompt = ChatPromptTemplate.from_messages(
-        [
-            SystemMessage(content="You are a customer assistant."),
-            HumanMessage(content=prompt.format(query=inputs.query, memory=old_memory))
-        ]
-    )
-    chain = chat_prompt | structured_output 
-    result_tool = chain.invoke({})
-    print(result_tool)
+    result_tool = await MULTIW.VM.MA.choose_tool(inputs.query, old_memory)
     #/////////////////////////////////////////////////////////    
     
     #-------------------------------------------------------
-    def OutputStructured1(BaseModel):
-        """Format the response as JSON including the response of chatbot, with keys are 'response' and 'new_query'"""
-            
-    prompt = PROMPT_ANSWER
-    structured_output = MULTIW.VM.openai.with_structured_output(OutputStructured1)
-    chat_prompt = ChatPromptTemplate.from_messages(
-        [
-            SystemMessage(content="You are a customer assistant."),
-            HumanMessage(content=prompt.format(query=inputs.query, memory=old_memory))
-        ]
-    )
-    chain = chat_prompt | structured_output 
-    result = chain.invoke({})
-    print(result)
+    result = await MULTIW.VM.MA.answer(inputs.query, old_memory)
     if result_tool["tool"] == "create_video":
         result["response"] += "Tôi sẽ tạo video dựa vào những đặc điểm bạn đã cung cấp."
     result.update(result_tool)
     #///////////////////////////////////////////////////////// 
     
     #---------------------------------------------------------
-    def OutputStructuredBase(BaseModel):
-        """Format the response as JSON with value is text and key is 'result'"""
-    prompt = PROMPT_GET_MEMORY
-    structured_output = MULTIW.VM.openai.with_structured_output(OutputStructuredBase)
-    chat_prompt = ChatPromptTemplate.from_messages(
-        [
-            SystemMessage(content="You are a helpful assistant"),
-            HumanMessage(content=prompt.format(query=result["new_query"], message=result["response"]))
-        ]
-    )
-    chain = chat_prompt | structured_output 
-    result_mem = chain.invoke({})
-    print(result_mem["result"])
+    result_mem = await MULTIW.VM.MA.get_memory(result["new_query"], result["response"])
+    #/////////////////////////////////////////////////////////
     old_memory.insert(0, f"Created at {time.strftime('%H:%M:%S', time.gmtime())}: " + result_mem["result"])
-    MULTIW.VM.dataw.redisClient.hset(inputs.sess_id, MULTIW.VM.dataw.dbmemory_name, json.dumps(old_memory[:10]))
-    MULTIW.VM.dataw.redisClient.expire(inputs.sess_id, 1800)
+    MULTIW.VM.dataw.redisClient.hset(inputs.sender_id, MULTIW.VM.dataw.dbmemory_name, json.dumps(old_memory[:10]))
+    MULTIW.VM.dataw.redisClient.expire(inputs.sender_id, 1800)
 
     return JSONResponse(status_code=200, content=result)
+
+@app.post("/api/createScenario")
+@HTTPException() 
+async def createScenario(inputs: InputScenario = Body(...)):
+    result_scenario = await MULTIW.VM.MA.create_scenario(inputs.description)
+    MULTIW.VM.dataw.update_scenario(MULTIW.cur, inputs.sender_id, inputs.name, result_scenario)
+    res = MULTIW.VM.dataw.get_scenario(MULTIW.cur, inputs.sender_id, inputs.name)
+    if not res["success"]:
+        return JSONResponse(status_code=500, content=res["error"])
+    return JSONResponse(status_code=200, content=res["result"])
+
+@app.post("/api/updateScenario")
+@HTTPException() 
+async def updateScenario(inputs: InputUpdateScenario = Body(...)):
+    result_scenario = await MULTIW.VM.MA.update_scenario(inputs.scenes)
+    scenes = {result_scenario.get(k, k): v for k, v in eval(inputs.scenes).items()}
+    MULTIW.VM.dataw.update_scenario(MULTIW.cur, inputs.sender_id, inputs.name, scenes)
+    res = MULTIW.VM.dataw.get_scenario(MULTIW.cur, inputs.sender_id, inputs.name)
+    if not res["success"]:
+        return JSONResponse(status_code=500, content=res["error"])
+    return JSONResponse(status_code=200, content=res["result"])
+
+@app.post("/api/getScenario")
+@HTTPException() 
+async def getScenario(inputs: InputScenario = Body(...)):
+    res = MULTIW.VM.dataw.get_scenario(MULTIW.cur, inputs.sender_id, inputs.name)
+    if not res["success"]:
+        return JSONResponse(status_code=500, content=res["error"])
+    return JSONResponse(status_code=200, content=res["result"])
+
+@app.post("/api/getListScenario")
+@HTTPException() 
+async def getListScenario(inputs: InputScenario = Body(...)):
+    res = MULTIW.VM.dataw.get_list_scenario(MULTIW.cur, inputs.sender_id)
+    if not res["success"]:
+        return JSONResponse(status_code=500, content=res["error"])
+    return JSONResponse(status_code=200, content=res["result"])
+
+@app.post("/api/deleteScenario")
+@HTTPException() 
+async def deleteScenario(inputs: InputScenario = Body(...)):
+    res = MULTIW.VM.dataw.delete_scenario(MULTIW.cur, inputs.sender_id, inputs.name)
+    if not res["success"]:
+        return JSONResponse(status_code=500, content=res["error"])
+    return JSONResponse(status_code=200, content="The scenario has been deleted!")
 
 @app.post("/api/createTopic")
 @HTTPException() 

@@ -46,6 +46,7 @@ class Config:
     NUM_QUERY_CONSUMERS = 1
     BATCH_SIZE          = 8
     DBMEM_NAME          = "memory"
+    NUM_WORKER          = int(os.getenv('NUM_WORKER', "2"))
     
     # REDISSERVER_IP       = os.getenv('REDISSERVER_IP', "localhost")
     # REDISSERVER_PORT     = os.getenv('REDISSERVER_PORT', 6669)
@@ -186,7 +187,7 @@ class MultiprocessWoker():
                     v_id = data["v_id"]
                     
                     #----upload original file to minio----
-                    res_file2bucket = self.VM.dataw.upload_file2bucket(bucket_name=Config.BUCKET_NAME, folder_name=f"{Config.COLLECTION_NAME}_backup", list_file_path=[data["path_file"]])
+                    res_file2bucket = self.VM.dataw.upload_file2bucket(bucket_name=Config.BUCKET_NAME, folder_name=f"{data['scenario_name']}{os.sep}{Config.COLLECTION_NAME}_backup", list_file_path=[data["path_file"]])
                     if not res_file2bucket["success"]:
                         raise ValueError(f"Error push file to bucket '{Config.BUCKET_NAME}': {res_file2bucket['error']}")
                         # print(f"Error push file to bucket '{Config.BUCKET_NAME}': {res_file2bucket['error']}")
@@ -198,10 +199,13 @@ class MultiprocessWoker():
                     self.VM.dataw.update_status(cur, data["sess_id"], "data", res, 10, "pending")
                     
                     #----preprocess data----
+                    data["scene_dict"] = json.loads(self.VM.dataw.get_scenario(cur, data['scenario_name'])["result"]["scenes"])
                     datatf = await self.VM.preprocess_data_nohl(data=data)
                     #//////////////////////
+                    scenario_id = f"{data['sender_id']}_{data['scenario_name']}"
                     if datatf["success"]:
                         data_info = {
+                            "sender_id": data["sender_id"],
                             "sess_id": data["sess_id"],
                             "collection_name": Config.COLLECTION_NAME,
                             "bucket_name": Config.BUCKET_NAME,
@@ -209,7 +213,9 @@ class MultiprocessWoker():
                             "v_id": v_id,
                             "v_name": name_v,
                             "root_path": path_file_new,
-                            "mute": data["mute"]
+                            "mute": data["mute"],
+                            "scenario_id": scenario_id,
+                            "file_type": data["file_type"]
                         }
                         data_info.update(datatf)
                         
@@ -283,11 +289,12 @@ class MultiprocessWoker():
                         continue
                     
                     data["u_id"] = data["sess_id"]
+                    data["SCENE_DICT"] = json.loads(self.VM.dataw.get_scenario(cur, data['sender_id'], data['scenario_name'])["result"]["scenes"])
                     res_make_mv = await self.VM.make_mv(**data)
                     if res_make_mv["success"]:
                         path_final_video = res_make_mv["final_video"]
                         final_output_dir = os.path.dirname(path_final_video)
-                        res = self.VM.dataw.upload_file2bucket(bucket_name=Config.BUCKET_NAME, folder_name=f"{Config.FOLDER_FINAL_VIDEO}", list_file_path=[path_final_video])
+                        res = self.VM.dataw.upload_file2bucket(bucket_name=Config.BUCKET_NAME, folder_name=f"{data['scenario_name']}{os.sep}{Config.FOLDER_FINAL_VIDEO}", list_file_path=[path_final_video])
                         if res["success"]:
                             res["list_path_new"] = res["list_path_new"][0]
                             self.VM.dataw.update_status(cur, data["sess_id"], "query", res, 100, "done")

@@ -9,6 +9,7 @@ from datetime import datetime
 import uuid
 import requests
 import time
+import pandas as pd
 
 # Page configuration
 st.set_page_config(
@@ -68,7 +69,121 @@ def get_from_minio(client, bucket_name, file_name):
         st.error(f"MinIO download error: {str(e)}")
         return None
     
-def prepare_video(sess_id, video_name, topic_name, overview, category, mute, video):
+def create_scenario(sender_id, name, description):
+    url = "http://localhost:8386/api/createScenario"
+        
+    headers = {
+        'Content-Type': 'application/json'
+    }
+    
+    payload = json.dumps({
+        "sender_id": sender_id,
+        "name": name, 
+        "description": description
+    })
+    res = requests.request("POST", url, headers=headers, data=payload)
+    content = res.json()
+    
+    if res.status_code == 500:
+        content = f"Cannot generate scenario because {content}"
+    
+    result = eval(content['scenes'])
+    des = result.values()
+    scene_name = []
+    for i in range(len(des)):
+        scene_name.append(f"Scene_{i+1}")
+    result = dict(zip(scene_name, des))
+    print(result)
+    return result
+
+def update_scenario(sender_id, name, scenes):
+    url = "http://localhost:8386/api/updateScenario"
+        
+    headers = {
+        'Content-Type': 'application/json'
+    }
+    
+    payload = json.dumps({
+        "sender_id": sender_id,
+        "name": name, 
+        "scenes": json.dumps(scenes)
+    })
+    res = requests.request("POST", url, headers=headers, data=payload)
+    content = res.json()
+    
+    if res.status_code == 500:
+        content = f"Cannot generate scenario because {content}"
+    
+    result = eval(content['scenes'])
+    des = result.values()
+    scene_name = []
+    for i in range(len(des)):
+        scene_name.append(f"Scene_{i+1}")
+    result = dict(zip(scene_name, des))
+    print(result)
+    return result
+
+def get_scenario(sender_id, name):
+    url = "http://localhost:8386/api/getScenario"
+        
+    headers = {
+        'Content-Type': 'application/json'
+    }
+    
+    payload = json.dumps({
+        "sender_id": sender_id,
+        "name": name,
+    })
+    res = requests.request("POST", url, headers=headers, data=payload)
+    content = res.json()
+    
+    if res.status_code == 500:
+        content = f"Cannot get scenario because {content}"
+    
+    result = eval(content['scenes'])
+    des = result.values()
+    scene_name = []
+    for i in range(len(des)):
+        scene_name.append(f"Scene_{i+1}")
+    result = dict(zip(scene_name, des))
+    print(result)
+    return result
+
+def get_list_scenario(sender_id):
+    url = "http://localhost:8386/api/getListScenario"
+        
+    headers = {
+        'Content-Type': 'application/json'
+    }
+    
+    payload = json.dumps({
+        "sender_id": sender_id
+    })
+    res = requests.request("POST", url, headers=headers, data=payload)
+    content = res.json()
+    
+    print(content)
+    return content
+
+
+def delete_scenario(sender_id, name):
+    url = "http://localhost:8386/api/deleteScenario"
+        
+    headers = {
+        'Content-Type': 'application/json'
+    }
+    
+    payload = json.dumps({
+        "sender_id": sender_id,
+        "name": name
+    })
+    res = requests.request("POST", url, headers=headers, data=payload)
+    content = res.json()
+    
+    print(content)
+    return content
+    
+def prepare_video(sender_id, sess_id, video_name, topic_name, overview, category, mute, scenario_name, video):
     url = "http://localhost:8386/api/uploadData"
         
     headers = {}
@@ -76,12 +191,14 @@ def prepare_video(sess_id, video_name, topic_name, overview, category, mute, vid
         category = ""
     
     params = {
+        "sender_id": sender_id,
         "sess_id": sess_id,
         "name": video_name,
         "topic_name": topic_name,
         "overview": overview,
         "category": category,
-        "mute": mute
+        "mute": mute,
+        "scenario_name": scenario_name
     }
     print(params)
     
@@ -99,7 +216,7 @@ def prepare_video(sess_id, video_name, topic_name, overview, category, mute, vid
         
     return text_response, is_processing
 
-def process_query(query, sess_id):
+def process_query(sender_id, query, sess_id):
     is_create_video = False
     url = "http://localhost:8386/api/checkCreateVideo"
         
@@ -108,6 +225,7 @@ def process_query(query, sess_id):
     }
     
     payload = json.dumps({
+        "sender_id": sender_id,
         "sess_id": sess_id,
         "query": query
     })
@@ -135,7 +253,7 @@ def process_query(query, sess_id):
     
     return text_response, new_query, is_create_video
 
-def process_video(query, sess_id):
+def process_video(sender_id, query, sess_id, scenario_name):
     url = "http://localhost:8386/api/createVideo"
         
     headers = {
@@ -143,8 +261,10 @@ def process_video(query, sess_id):
     }
     
     payload = json.dumps({
+        "sender_id": sender_id,
         "sess_id": sess_id,
-        "query": query
+        "query": query,
+        "scenario_name": scenario_name
     })
     res = requests.request("POST", url, headers=headers, data=payload)
     
@@ -204,15 +324,26 @@ def delete_task(sess_id):
     print(content)
 
 # st.session_state["sess_id"] = "abcd"
-if "sess_id" not in st.session_state:
-    st.session_state["sess_id"] = str(uuid.uuid4())
+# if "sess_id" not in st.session_state:
+st.session_state["sess_id"] = str(uuid.uuid4())
+if "sender_id" not in st.session_state:
+    st.session_state["sender_id"] = "abcd"
+if "scenario" not in st.session_state:
+    st.session_state["scenario"] = None
+if 'list_scenario' not in st.session_state:
+    st.session_state["list_scenario"] = get_list_scenario(st.session_state["sender_id"])
+if 'scenario_name' not in st.session_state:
+    st.session_state["scenario_name"] = ""
+if 'scenario_select' not in st.session_state:
+    st.session_state["scenario_select"] = ""
+    
 # Sidebar for MinIO configuration
 with st.sidebar:
     st.header("MinIO Configuration")
     
     minio_endpoint = st.text_input("MinIO Endpoint", value="localhost:9000")
-    minio_access_key = st.text_input("Access Key")
-    minio_secret_key = st.text_input("Secret Key", type="password")
+    minio_access_key = st.text_input("Access Key", value="demo")
+    minio_secret_key = st.text_input("Secret Key", type="password", value="demo123456")
     minio_secure = st.checkbox("Use HTTPS", value=False)
     bucket_name = st.text_input("Bucket Name", value="data-mmv")
     
@@ -239,6 +370,49 @@ with st.sidebar:
         st.warning("⚠️ MinIO Not Connected")
     
     st.divider()
+    st.header("Generate Scenario")
+    scenario_name = st.text_input("Scenario Name", value="demo1")
+    scenario_description = st.text_area(
+        "Description",
+        placeholder="Describe your video ...",
+        height=100,
+        help="Provide a detailed description of your video"
+    )
+    if st.button("Generate", type="primary", use_container_width=True):
+        st.session_state["scenario_name"] = scenario_name
+        with st.spinner("Generating scenario..."):
+            st.session_state["scenario"] = create_scenario(st.session_state["sender_id"], st.session_state["scenario_name"], scenario_description)
+        if isinstance(st.session_state["scenario"], str):
+            st.error(st.session_state["scenario"])
+    if st.session_state["scenario"] is not None:
+        df = pd.DataFrame(st.session_state["scenario"].items(), columns=['Scene', 'Description'])
+        edited_df = st.data_editor(df, use_container_width=True, num_rows="dynamic", key=f"scenario_data")
+        col1, col2 = st.columns([2, 2])
+        with col1:
+            if st.button("Got it!"):
+                st.session_state["scenario"] = None
+                if st.session_state["scenario_name"] not in st.session_state["list_scenario"]:
+                    st.session_state["list_scenario"].append(st.session_state["scenario_name"])
+                st.rerun()
+        with col2:
+            if st.button("Update"):
+                edited_df = edited_df.dropna()
+                scenario_update = edited_df.to_dict(orient='list')
+                scenario_new = dict(zip(scenario_update['Scene'], scenario_update['Description']))
+                st.session_state["scenario"] = update_scenario(st.session_state["sender_id"], st.session_state["scenario_name"], scenario_new)
+                if isinstance(st.session_state["scenario"], str):
+                    st.error(st.session_state["scenario"])
+                else:
+                    st.success("Update successfully!")
+    scenario_box = st.selectbox(
+        "Scenario Name",
+        options=st.session_state["list_scenario"],
+        help="Choose your scenario"
+    )
+    st.session_state["scenario_select"] = scenario_box
+    scenario_data = get_scenario(st.session_state["sender_id"], scenario_box)
+    df_2 = pd.DataFrame(scenario_data.items(), columns=['Scene', 'Description'])
+    edited_df_2 = st.data_editor(df_2, use_container_width=True, num_rows="dynamic", key=f"scenario_data_2", disabled=True)
     st.divider()
     
     # Sidebar with upload form
@@ -335,7 +509,7 @@ with st.sidebar:
                 progress_bar = st.progress(0)
                 status_text = st.empty()
                 with st.spinner("Uploading video..."):                     
-                    text_response, is_processing = prepare_video(st.session_state["sess_id"], video_name, "video_upload", video_description, category, mute_video, uploaded_file)
+                    text_response, is_processing = prepare_video(st.session_state["sender_id"], st.session_state["sess_id"], video_name, "video_upload", video_description, category, mute_video, st.session_state["scenario_select"], uploaded_file)
                     
                     if is_processing:
                         while True:
@@ -395,6 +569,7 @@ if prompt := st.chat_input("Enter your query..."):
         with st.chat_message("assistant"):
             with st.spinner("Waiting a minutes..."):
                 text_response, new_query, is_create_video = process_query(
+                    st.session_state["sender_id"],
                     prompt, 
                     st.session_state["sess_id"]
                 )
@@ -415,8 +590,10 @@ if prompt := st.chat_input("Enter your query..."):
                     video_url = ""
                     video_filename = ""
                     text_response, is_processing = process_video(
+                        st.session_state["sender_id"],
                         new_query, 
-                        st.session_state["sess_id"]
+                        st.session_state["sess_id"],
+                        st.session_state["scenario_select"],
                     )
                     if is_processing:
                         while True:

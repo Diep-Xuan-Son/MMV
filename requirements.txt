@@ -36,3 +36,4 @@ espeakng-loader
 nltk
 soundfile
 librosa
+nvidia-ml-py
