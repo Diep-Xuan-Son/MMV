@@ -1,4 +1,5 @@
 PROMPT_CHOOSE_TOOL = """
+You are a routing agent that receives a user query and selects the appropriate tool to answer it.
 The user's query: {query}
 
 Here is your memory: {memory}
@@ -127,4 +128,31 @@ Based on the description of each part video, Write an overall description that g
 
 ## RULE
 Write the overall description in Vietnamese
+"""
+
+
+PROMPT_CREATE_SCENARIO = """
+Here is the user's query: {query}
+
+Suggesting some common scenes when making a video based on the user's query
+The output is in JSON format like below:
+<name of scene>: <the description of scene> 
+
+## RULE
+The name of scene is in English, and the description of scene is in Vietnamese
+The name of scene doesn't have space symbol
+The name of scene is a lower text
+"""
+
+PROMPT_UPDATE_SCENARIO = """
+Here is the scenes and descriptions: {scene_des}
+
+Name for each scene
+The output is in JSON format like below:
+<no name scene>: <new scene name> 
+
+## RULE 
+The name of scene is in English
+The name of scene doesn't have space symbol
+The name of scene is a lower text
 """

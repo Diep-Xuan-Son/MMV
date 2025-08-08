@@ -16,6 +16,13 @@ from loguru import logger
 from fastapi.responses import StreamingResponse, JSONResponse
 from functools import wraps
 
+import logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s.%(msecs)03d | %(name)s | %(levelname)s | %(message)s",
+    stream=sys.stderr,
+)
+
 def check_folder_exist(*args, **kwargs):
 	if len(args) != 0:
 		for path in args:

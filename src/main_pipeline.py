@@ -27,16 +27,17 @@ if str(ROOT) not in sys.path:
 
 class VideoMaketing(object):
     SCENE_DICT = {
-            "opening_scene": "Quay toàn cảnh bên ngoài spa, làm nổi bật logo, bảng hiệu và không khí chào đón. Thể hiện rõ nhận diện thương hiệu với hình ảnh sáng sủa, sạch sẽ và thu hút.",
-            "reception_scene": "Ghi lại khoảnh khắc lễ tân đón tiếp khách với nụ cười thân thiện. Không gian chuyên nghiệp nhưng gần gũi, tạo cảm giác thoải mái ngay từ lúc khách bước vào.",
-            "consultation_scene": "Quay nhân viên đang tư vấn cho khách, trao đổi về nhu cầu làm đẹp và các dịch vụ. Nhấn mạnh sự lắng nghe chăm chú và phong cách tư vấn chuyên nghiệp, tận tình.",
-            "service_scene": "Quay các dịch vụ như massage, chăm sóc da mặt, tắm trắng, xông hơi... Tập trung vào: Góc quay cận cảnh bàn tay nhẹ nhàng thao tác, Các thiết bị máy móc hiện đại đang vận hành, Làn da khách mịn màng, sáng khỏe. Tạo cảm giác về sự cao cấp, chuyên nghiệp và tinh tế trong dịch vụ",
-            "interior_scene": "Quay toàn bộ các khu vực bên trong spa: phòng trị liệu, phòng thư giãn, khu trang điểm... Thể hiện một không gian yên tĩnh, sang trọng và sạch sẽ, mang lại cảm giác thư thái cho khách.",
-            "staff_scene": "Ghi hình đội ngũ nhân viên chuyên nghiệp, thân thiện. Có thể quay cảnh nhân viên đang làm việc cùng nhau hoặc chụp ảnh nhóm thể hiện tinh thần đoàn kết và chuyên môn cao.",
-            "customer_scene": "Quay cảnh khách hàng bày tỏ cảm xúc và sự hài lòng sau khi sử dụng dịch vụ. Tập trung vào biểu cảm tự nhiên, vui vẻ và những lời nhận xét chân thành",
-            "product_scene": "Quay cận cảnh các sản phẩm chăm sóc da và làm đẹp được spa sử dụng. Làm nổi bật bao bì sản phẩm, thành phần và chất lượng, tạo sự tin tưởng và chuyên nghiệp",
-            "closing_scene": "Hiển thị đầy đủ thông tin liên hệ, trang fanpage và các chương trình ưu đãi hiện có. Thiết kế hình ảnh rõ ràng, hấp dẫn, kêu gọi khách hàng theo dõi và đến trải nghiệm."
-        }
+        "opening_scene": "Quay toàn cảnh bên ngoài spa, làm nổi bật logo, bảng hiệu và không khí chào đón. Thể hiện rõ nhận diện thương hiệu với hình ảnh sáng sủa, sạch sẽ và thu hút.",
+        "reception_scene": "Ghi lại khoảnh khắc lễ tân đón tiếp khách với nụ cười thân thiện. Không gian chuyên nghiệp nhưng gần gũi, tạo cảm giác thoải mái ngay từ lúc khách bước vào.",
+        "consultation_scene": "Quay nhân viên đang tư vấn cho khách, trao đổi về nhu cầu làm đẹp và các dịch vụ. Nhấn mạnh sự lắng nghe chăm chú và phong cách tư vấn chuyên nghiệp, tận tình.",
+        "service_scene": "Quay các dịch vụ như massage, chăm sóc da mặt, tắm trắng, xông hơi... Tập trung vào: Góc quay cận cảnh bàn tay nhẹ nhàng thao tác, Các thiết bị máy móc hiện đại đang vận hành, Làn da khách mịn màng, sáng khỏe. Tạo cảm giác về sự cao cấp, chuyên nghiệp và tinh tế trong dịch vụ",
+        "interior_scene": "Quay toàn bộ các khu vực bên trong spa: phòng trị liệu, phòng thư giãn, khu trang điểm... Thể hiện một không gian yên tĩnh, sang trọng và sạch sẽ, mang lại cảm giác thư thái cho khách.",
+        "staff_scene": "Ghi hình đội ngũ nhân viên chuyên nghiệp, thân thiện. Có thể quay cảnh nhân viên đang làm việc cùng nhau hoặc chụp ảnh nhóm thể hiện tinh thần đoàn kết và chuyên môn cao.",
+        "customer_scene": "Quay cảnh khách hàng bày tỏ cảm xúc và sự hài lòng sau khi sử dụng dịch vụ. Tập trung vào biểu cảm tự nhiên, vui vẻ và những lời nhận xét chân thành",
+        "product_scene": "Quay cận cảnh các sản phẩm chăm sóc da và làm đẹp được spa sử dụng. Làm nổi bật bao bì sản phẩm, thành phần và chất lượng, tạo sự tin tưởng và chuyên nghiệp",
+        "closing_scene": "Hiển thị đầy đủ thông tin liên hệ, trang fanpage và các chương trình ưu đãi hiện có. Thiết kế hình ảnh rõ ràng, hấp dẫn, kêu gọi khách hàng theo dõi và đến trải nghiệm."
+    }
+    
     def __init__(self, 
                  model_hl_path: str='./weights/model_highlight.ckpt',
                  model_slowfast_path: str='./weights/SLOWFAST_8x8_R50.pkl',
@@ -82,6 +83,7 @@ class VideoMaketing(object):
         self.is_making_mv = True
         self.is_processing_data = True
         self.collection_name = collection_name
+        self.bucket_name = bucket_name
         
         # init workers
         self.hlw = HighlightWorker(scene_dict=self.SCENE_DICT, model_hl=model_hl_path, model_slowfast=model_slowfast_path, model_clip=model_clip_path)
@@ -132,14 +134,11 @@ class VideoMaketing(object):
         
         self.openai_med = ChatOpenAI(
             model="gpt-4o-mini",
-            temperature=4,
+            temperature=0.4,
             max_tokens=None,
             timeout=None,
             max_retries=2,
             api_key=api_key_openai,  # if you prefer to pass api key in directly instaed of using env vars
-            # base_url="...",
-            # organization="...",
-            # other params...,
             streaming=True
         )
         
@@ -477,6 +476,7 @@ class VideoMaketing(object):
     
     async def preprocess_data_nohl(self, data: dict):
         self.is_processing_data = True
+        SCENE_DICT = data["scene_dict"]
         # ----check video length----
         vhighlight = {}
         # for v_name in os.listdir(folder_vtest):
@@ -528,10 +528,10 @@ class VideoMaketing(object):
         #----write overview----
         overview = data["overview"]
         if not overview:
-            result = await self.hlw.write_overall_description(self.openai, description_parts=descriptions)
+            result = await self.MA.write_overall_description(description_parts=descriptions)
             overview = result["result"]
         else:
-            result = await self.hlw.rewrite_description_rely_on_overview(self.openai, description_parts=descriptions, overview=overview)
+            result = await self.MA.rewrite_description_rely_on_overview(overview=overview, description_parts=descriptions)
             descriptions = result["result"]
         #//////////////////////
         if not self.is_processing_data:
@@ -539,7 +539,7 @@ class VideoMaketing(object):
         self.dataw.update_status(self.dataw.cur, data["sess_id"], "data", {}, 40, "pending")
         
         #----choose scene for each description----
-        result = await self.hlw.choose_scene(self.openai, descriptions=descriptions, category=data["category"])
+        result = await self.MA.choose_scene(scene_dict=SCENE_DICT, descriptions=descriptions, category=data["category"])
         # print(result)
         scene_list_des = {}
         for vid, vname in result.items():
@@ -553,7 +553,7 @@ class VideoMaketing(object):
         self.dataw.update_status(self.dataw.cur, data["sess_id"], "data", {}, 50, "pending")
 
         #----get unique description for scene----
-        scene_vid = await self.hlw.choose_description4scene(self.openai, descriptions=scene_list_des)
+        scene_vid = await self.MA.choose_description4scene(scene_dict=SCENE_DICT, descriptions=scene_list_des)
         #////////////////////////////////////////
         print(f"----scene_vid: {scene_vid}")
         
@@ -564,7 +564,7 @@ class VideoMaketing(object):
         list_path = []
         list_htime = []
         list_duration = []
-        for i, sn in enumerate(self.SCENE_DICT.keys()):
+        for i, sn in enumerate(SCENE_DICT.keys()):
             if sn in scene_vid:
                 vid = scene_vid[sn]
                 if vhighlight[vid].start_time:
@@ -586,7 +586,7 @@ class VideoMaketing(object):
                 list_path.append("")
                 list_htime.append(0)
                 list_duration.append(0)
-            self.dataw.update_status(self.dataw.cur, data["sess_id"], "data", {}, 50 + round((i+1)*25/len(self.SCENE_DICT),2), "pending")
+            self.dataw.update_status(self.dataw.cur, data["sess_id"], "data", {}, 50 + round((i+1)*25/len(SCENE_DICT),2), "pending")
         if len(threadw):
             result = await asyncio.gather(*threadw)
         if not self.is_processing_data:
@@ -618,7 +618,7 @@ class VideoMaketing(object):
         self.dataw.update_status(self.dataw.cur, data["sess_id"], "data", {}, 80, "pending")
         return response
         
-    async def make_mv(self, u_id: str, query: str, **kwargs):
+    async def make_mv(self, u_id: str, query: str, SCENE_DICT: str, **kwargs):
         self.is_making_mv = True
         # ----init folder for u_id----
         output_splitted_dir = os.path.join(self.dir_split_video, u_id)
@@ -630,7 +630,7 @@ class VideoMaketing(object):
         #/////////////////////////////
         
         #----retrieve----
-        result = await self.hlw.get_advanced_query(self.openai, query=query)
+        result = await self.MA.get_advanced_query(query=query, scene_dict=SCENE_DICT)
         scene_names = list(result.keys())
         advanced_querys = list(result.values())
         res = self.dataw.retrieve(collection_name=self.collection_name, text_querys=advanced_querys, categories=scene_names)
@@ -648,7 +648,7 @@ class VideoMaketing(object):
         list_des = res["list_des"]
         dict_des = dict(zip(scene_names, list_des))
         dict_des = {k:v for k,v in dict_des.items() if v}
-        result = await self.hlw.select_matching_description(llm=self.openai, descriptions=dict_des, query=query)
+        result = await self.MA.select_matching_description(descriptions=dict_des, query=query)
         dict_path = {}
         dict_htime = {}
         dict_duration = {}
@@ -660,7 +660,7 @@ class VideoMaketing(object):
                 dict_htime[k] = res["list_htimes"][i][v]
                 dict_duration[k] = res["list_durations"][i][v]
         print(scene_des)
-        new_descriptions = await self.hlw.rewrite_description(llm=self.openai_med, descriptions=scene_des, query=query)
+        new_descriptions = await self.MA_med.rewrite_description(descriptions=scene_des, query=query)
         #/////////////////////////////////////////////
         print(new_descriptions)
         print(dict_path)
@@ -677,7 +677,7 @@ class VideoMaketing(object):
         # dict_duration = {'opening_scene': 60, 'reception_scene': 60, 'consultation_scene': 60, 'service_scene': 60, 'interior_scene': 17.462, 'staff_scene': 60, 'customer_scene': 60, 'product_scene': 43.259, 'closing_scene': 60}
         
         for scene, path in dict_path.items():
-            res = self.dataw.download_file(bucket_name="data_mmv", object_name=path, folder_local=output_splitted_dir)
+            res = self.dataw.download_file(bucket_name=self.bucket_name, object_name=path, folder_local=output_splitted_dir)
             dict_path[scene] = res["file_path"]
         
         threadw = []
@@ -693,8 +693,15 @@ class VideoMaketing(object):
             mute = True
             # if vhighlight[v_id].type == "interview":
             #     mute = False
-            num_word = len(des.split())
-            duration_scene = num_word//4
+            
+            #----tts----
+            output_dir = await self.ttsw(text=des, output_dir=audio_output_dir)
+            audios[v_id] = output_dir
+            #///////////
+            
+            # num_word = len(des.split())
+            # duration_scene = num_word//4
+            duration_scene = await self.vew.get_duration(output_dir) + 1
             # total_video_time = await self.vew.get_duration(dict_path[v_id])
             total_video_time = dict_duration[v_id]
             spare_time = (dict_htime[v_id] + duration_scene) - (total_video_time - self.duration_effect)
@@ -716,25 +723,28 @@ class VideoMaketing(object):
         for i, (v_id, des) in enumerate(new_descriptions.items()):    
             #----add text----
             mini_video_text_path = f"{final_output_dir}{os.sep}final_mini_video_text_{i}.mp4"
-            threadw2.append(self.vew.add_text(text=des, video_input_path=list_mini_video[i], video_output_path=mini_video_text_path, fast=False, start_time=1-i/len(new_descriptions)))
+            duration_mini_video_current = int(await self.vew.get_duration(list_mini_video[i])) - (self.duration_effect)
+            # threadw2.append(self.vew.add_text(text=des, video_input_path=list_mini_video[i], video_output_path=mini_video_text_path, fast=False, start_time=1-i/len(new_descriptions)))
+            threadw2.append(self.vew.add_text2(texts=[des], video_input_path=list_mini_video[i], video_output_path=mini_video_text_path, fast=False, start_time=[1-i/len(new_descriptions), duration_mini_video_current], text_position=[300, 300, 600]))
             #////////////////
             
             # list_mini_video.append(mini_video_path)
             list_mini_video_text.append(mini_video_text_path)
             # duration_mini_video = (i*int(await self.vew.get_duration(mini_video_path)) - i*(self.duration_effect) + 0.5)*1000
-            if i:
-                duration_mini_video += (int(await self.vew.get_duration(list_mini_video[i-1])) - (self.duration_effect))*1000
+            # if i:
+            #     duration_mini_video += (int(await self.vew.get_duration(list_mini_video[i-1])) - (self.duration_effect))*1000
             # if vhighlight[v_id].type == "interview":
             #     continue
+            duration_mini_video += duration_mini_video_current*1000
             list_duration_mini_video.append(duration_mini_video + 500)
                 
-            #----tts----
-            for word in list_word_en:
-                if word in des:
-                    des = des.replace(word, f"[en-us]{{{word}}}")
-            output_dir = await self.ttsw(text=des, output_dir=audio_output_dir)
-            audios[v_id] = output_dir
-            #///////////
+            # #----tts----
+            # for word in list_word_en:
+            #     if word in des:
+            #         des = des.replace(word, f"[en-us]{{{word}}}")
+            # output_dir = await self.ttsw(text=des, output_dir=audio_output_dir)
+            # audios[v_id] = output_dir
+            # #///////////
             if not self.is_making_mv:
                 {"success": False, "list_path_delete": list_path_delete}
             self.dataw.update_status(self.dataw.cur, u_id, "query", {}, round(30 + (i+1)*50/len(new_descriptions),2), "pending")
@@ -755,7 +765,7 @@ class VideoMaketing(object):
         #----add audio----
         timestamp = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
         final_video_audio_file = f"{final_output_dir}{os.sep}mv_{u_id}_{timestamp}.mp4"
-        result = await self.vew.add_audio(final_video_file, list(audios.values()), list_duration_mini_video, f"{DIR}{os.sep}data{os.sep}audio_background{os.sep}bm1.mp3", final_video_audio_file)
+        result = await self.vew.add_audio(final_video_file, list(audios.values()), [700] + list_duration_mini_video[:-1], f"{DIR}{os.sep}data{os.sep}audio_background{os.sep}bm1.mp3", final_video_audio_file)
         #/////////////////
         if not self.is_making_mv:
             {"success": False, "list_path_delete": list_path_delete}
@@ -787,7 +797,7 @@ if __name__=="__main__":
     # exit()
     
     query = "cho tôi video giới thiệu về MQ spa với không gian sang trọng"
-    asyncio.run(vm.make_mv(u_id=u_id, query=query))
+    asyncio.run(vm.make_mv(u_id=u_id, query=query, SCENE_DICT=vm.SCENE_DICT))
     
 # """
 # 1. Ngoai canh/ mat tien spa / canh thuong hieu

@@ -127,6 +127,12 @@ class DBWorker(object):
             # ),
             # on_disk_payload= True
         )
+        
+        self.qdrant_client.create_payload_index(
+            collection_name=collection_name,
+            field_name="category",
+            field_schema="text"
+        )
 
         return {"success": True}
     
@@ -162,6 +168,7 @@ class DBWorker(object):
                    list_duration: list,  
                    category: str="",  
                    mute: bool=True,
+                   scenario_name: str="",
                    group_id: str="group1"):
         if not self.qdrant_client.collection_exists(collection_name=collection_name):
             return {"success": False, "error": f"Collection {collection_name} has not been registered yet"}
@@ -186,6 +193,7 @@ class DBWorker(object):
                         "list_duration": list_duration,
                         "category": category,
                         "mute": mute,
+                        "scenario_name": scenario_name,
                         "datetime": datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
                         "timestamp": time.time(),
                         "group_id": group_id
@@ -450,34 +458,52 @@ class DBWorker(object):
         #----create db postgres----
         # self.cur.execute(f'''DROP DATABASE {db_name}''')
         # self.cur.execute(f'''CREATE DATABASE {db_name}''')
+        
+        # self.cur.execute(f'''DROP TABLE IF EXISTS scenario CASCADE''')
+        self.cur.execute(f'''
+        CREATE TABLE IF NOT EXISTS scenario(
+            id SERIAL PRIMARY KEY,
+            s_id TEXT NOT NULL,
+            sender_id VARCHAR(512) NOT NULL,
+            name TEXT NOT NULL,
+            scenes TEXT NOT NULL,
+            UNIQUE (s_id)
+        )''')
+        
         # self.cur.execute(f'''DROP TABLE IF EXISTS {table_name}''')
-        self.cur.execute(f'''CREATE TABLE IF NOT EXISTS {table_name}(
-                                id SERIAL PRIMARY KEY,
-                                v_id VARCHAR(512) NOT NULL,
-                                v_name TEXT NOT NULL,
-                                root_path TEXT NOT NULL,
-                                overview TEXT NOT NULL,
-                                description_scenes TEXT NOT NULL,
-                                paths TEXT NOT NULL,
-                                highlight_times TEXT NOT NULL,
-                                durations TEXT NOT NULL,
-                                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                                category VARCHAR(255) NOT NULL,
-                                mute BOOLEAN NOT NULL DEFAULT TRUE,
-                                UNIQUE (v_id)
-                        )''')
+        print(table_name)
+        self.cur.execute(f'''
+        CREATE TABLE IF NOT EXISTS {table_name}(
+            id SERIAL PRIMARY KEY,
+            sender_id TEXT NOT NULL,
+            v_id VARCHAR(512) NOT NULL,
+            v_name TEXT NOT NULL,
+            root_path TEXT NOT NULL,
+            overview TEXT NOT NULL,
+            description_scenes TEXT NOT NULL,
+            paths TEXT NOT NULL,
+            highlight_times TEXT NOT NULL,
+            durations TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            category VARCHAR(255) NOT NULL,
+            mute BOOLEAN NOT NULL DEFAULT TRUE,
+            file_type TEXT NOT NULL,
+            UNIQUE (v_id),
+            scenario_id TEXT REFERENCES scenario(s_id) ON DELETE CASCADE
+        )''')
         
         # self.cur.execute(f'''DROP TABLE IF EXISTS tasks''')
-        self.cur.execute(f'''CREATE TABLE IF NOT EXISTS tasks(
-                                id SERIAL PRIMARY KEY,
-                                session_id VARCHAR(512) NOT NULL,
-                                type TEXT NOT NULL,
-                                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                                result TEXT NOT NULL,
-                                percent TEXT NOT NULL,
-                                status TEXT NOT NULL,
-                                UNIQUE (session_id)
-                        )''')
+        self.cur.execute(f'''
+        CREATE TABLE IF NOT EXISTS tasks(
+            id SERIAL PRIMARY KEY,
+            session_id VARCHAR(512) NOT NULL,
+            type TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            result TEXT NOT NULL,
+            percent TEXT NOT NULL,
+            status TEXT NOT NULL,
+            UNIQUE (session_id)
+        )''')
         #//////////////////////////
         return {"success": True}
     
@@ -512,6 +538,46 @@ class DBWorker(object):
         response = dict(zip(columns, rows[0]))
         return {"success": True, "result": response}
     
+    def update_scenario(self, cur: object, sender_id: str, name: str, scenes: dict):
+        s_id = f"{sender_id}_{name}"
+        cur.execute(
+            "INSERT INTO scenario (s_id, sender_id, name, scenes) VALUES (%s, %s, %s, %s) ON CONFLICT (s_id) DO UPDATE SET scenes = EXCLUDED.scenes;",
+            (s_id, sender_id, name, json.dumps(scenes))
+        )
+        
+    def delete_scenario(self, cur: object, sender_id: str, name: str):
+        s_id = f"{sender_id}_{name}"
+        cur.execute(
+            "DELETE FROM scenario WHERE s_id = %s;",
+            (s_id,)
+        )
+        
+    def get_scenario(self, cur: object, sender_id: str, scenario_name: str):
+        s_id = f"{sender_id}_{scenario_name}"
+        cur.execute(
+            "SELECT scenes" + f" FROM scenario WHERE s_id = %s;",
+            (s_id,)
+        )
+        rows = cur.fetchall()
+        if not len(rows):
+            return {"success": False, "error": "The scenario name not found!"}
+        
+        response = {"scenes": rows[0][0]}
+        return {"success": True, "result": response}
+    
+    def get_list_scenario(self, cur: object, sender_id: str):
+        cur.execute(
+            "SELECT name" + f" FROM scenario WHERE sender_id = %s;",
+            (sender_id,)
+        )
+        rows = cur.fetchall()
+        if not len(rows):
+            return {"success": False, "error": "The sender_id name not found!"}
+        
+        print(rows)
+        response = [row[0] for row in rows]
+        return {"success": True, "result": response}
+    
     def get_row(self, cur: object, table_name: str, columns: list, v_ids: list):
         cur.execute(
             "SELECT " + ", ".join(columns) + f" FROM {table_name} WHERE v_id = ANY(%s);",
@@ -528,6 +594,7 @@ class DBWorker(object):
     
     @MyException()        
     def upload_data(self,
+                    sender_id: str,
                     sess_id: str,
                     collection_name: str, 
                     bucket_name: str, 
@@ -542,6 +609,8 @@ class DBWorker(object):
                     list_duration: list, 
                     category: list, 
                     mute: bool,
+                    scenario_id: str,
+                    file_type: str,
                     **kwargs):
         bucket_name = bucket_name.replace("_", "-")
 
@@ -551,13 +620,14 @@ class DBWorker(object):
             #----upload file to minio----
             if file_name:
                 print("----upload to minio----")
-                res = self.upload_file2bucket(bucket_name=bucket_name, folder_name=collection_name, list_file_path=[file_name])
+                folder_name = f"{scenario_id}{os.sep}{collection_name}"
+                res = self.upload_file2bucket(bucket_name=bucket_name, folder_name=folder_name, list_file_path=[file_name])
                 if not res["success"]:
                     print(res["error"])
                     list_path_new.append("")
                     return res
                 else:
-                    list_path_new.append(os.path.join(collection_name, os.path.basename(file_name)))
+                    list_path_new.append(os.path.join(folder_name, os.path.basename(file_name)))
             #////////////////////////////
             else:
                 list_path_new.append("")
@@ -568,15 +638,15 @@ class DBWorker(object):
         # self.cur.execute(f'''INSERT INTO {table_name} (v_id, description, description_scenes, paths, highlight_times, category) VALUES ('{os.path.basename(file_name)}','{description}', '{list_des}', '{list_path_new}', '{list_htime}', '{category}') ON CONFLICT (v_id) DO NOTHING''')
         print("----upload to postgres----")
         self.cur.execute(
-            "INSERT INTO " + table_name + " (v_id, v_name, root_path, overview, description_scenes, paths, highlight_times, durations, category, mute) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (v_id) DO NOTHING;",
-            (v_id, v_name, root_path, overview, str(list_des), str(list_path_new), str(list_htime), str(list_duration), str(category), mute)
+            "INSERT INTO " + table_name + " (sender_id, v_id, v_name, root_path, overview, description_scenes, paths, highlight_times, durations, category, mute, file_type, scenario_id) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (v_id) DO NOTHING;",
+            (sender_id, v_id, v_name, root_path, overview, str(list_des), str(list_path_new), str(list_htime), str(list_duration), str(category), mute, file_type, scenario_id)
         )
         #/////////////////////////////
         self.update_status(self.cur, sess_id, "data", {}, 90, "pending")
         
         #----upload vector data to qdrant----
         print("----upload to qdrant----")
-        self.add_vector(collection_name=collection_name, v_id=v_id, v_name=v_name, root_path=root_path, overview=overview, list_path=list_path_new, list_des=list_des, list_htime=list_htime, list_duration=list_duration, category=category, mute=mute, group_id="group1")
+        self.add_vector(collection_name=collection_name, v_id=v_id, v_name=v_name, root_path=root_path, overview=overview, list_path=list_path_new, list_des=list_des, list_htime=list_htime, list_duration=list_duration, category=category, mute=mute, scenario_name=scenario_name, group_id="group1")
         if not res["success"]:
             print(res["error"])
             return res
@@ -592,7 +662,34 @@ if __name__=="__main__":
     bucket_name = "data_mmv"
     db_name = "mmv"
     table_name = "videos"
+    scenario_name = "demo1"
     dtw.init_db(collection_name=collection_name, bucket_name=bucket_name, db_name=db_name, table_name=table_name)
+    
+    # dtw.upload_file2bucket(bucket_name=bucket_name, folder_name=f"{scenario_name}{os.sep}{collection_name}", list_file_path=["./data_test/abc.mp4"])
+    
+    # demo1 = {
+    #     "opening_scene": "Quay toàn cảnh bên ngoài spa, làm nổi bật logo, bảng hiệu và không khí chào đón. Thể hiện rõ nhận diện thương hiệu với hình ảnh sáng sủa, sạch sẽ và thu hút.",
+    #     "reception_scene": "Ghi lại khoảnh khắc lễ tân đón tiếp khách với nụ cười thân thiện. Không gian chuyên nghiệp nhưng gần gũi, tạo cảm giác thoải mái ngay từ lúc khách bước vào.",
+    #     "consultation_scene": "Quay nhân viên đang tư vấn cho khách, trao đổi về nhu cầu làm đẹp và các dịch vụ. Nhấn mạnh sự lắng nghe chăm chú và phong cách tư vấn chuyên nghiệp, tận tình.",
+    #     "service_scene": "Quay các dịch vụ như massage, chăm sóc da mặt, tắm trắng, xông hơi... Tập trung vào: Góc quay cận cảnh bàn tay nhẹ nhàng thao tác, Các thiết bị máy móc hiện đại đang vận hành, Làn da khách mịn màng, sáng khỏe. Tạo cảm giác về sự cao cấp, chuyên nghiệp và tinh tế trong dịch vụ",
+    #     "interior_scene": "Quay toàn bộ các khu vực bên trong spa: phòng trị liệu, phòng thư giãn, khu trang điểm... Thể hiện một không gian yên tĩnh, sang trọng và sạch sẽ, mang lại cảm giác thư thái cho khách.",
+    #     "staff_scene": "Ghi hình đội ngũ nhân viên chuyên nghiệp, thân thiện. Có thể quay cảnh nhân viên đang làm việc cùng nhau hoặc chụp ảnh nhóm thể hiện tinh thần đoàn kết và chuyên môn cao.",
+    #     "customer_scene": "Quay cảnh khách hàng bày tỏ cảm xúc và sự hài lòng sau khi sử dụng dịch vụ. Tập trung vào biểu cảm tự nhiên, vui vẻ và những lời nhận xét chân thành",
+    #     "product_scene": "Quay cận cảnh các sản phẩm chăm sóc da và làm đẹp được spa sử dụng. Làm nổi bật bao bì sản phẩm, thành phần và chất lượng, tạo sự tin tưởng và chuyên nghiệp",
+    #     "closing_scene": "Hiển thị đầy đủ thông tin liên hệ, trang fanpage và các chương trình ưu đãi hiện có. Thiết kế hình ảnh rõ ràng, hấp dẫn, kêu gọi khách hàng theo dõi và đến trải nghiệm."
+    # }
+    
+    # demo2 = {
+    #     "opening_shot": "Cảnh quay tổng quan trụ sở công ty với logo nổi bật, nhân viên ra vào thể hiện môi trường chuyên nghiệp, sáng tạo.",
+    #     "rnd_lab": "Cảnh phòng nghiên cứu và phát triển với các kỹ sư đang thử nghiệm và hiệu chỉnh camera AI trên nhiều thiết bị.",
+    #     "product_demo": "Cảnh quay cận sản phẩm camera AI đang hoạt động, nhận diện khuôn mặt, phát hiện vật thể trong thời gian thực.",
+    #     "ai_algorithm": "Cảnh minh họa quy trình xử lý dữ liệu AI, các dòng code, sơ đồ thuật toán, và dữ liệu huấn luyện trên màn hình máy tính.",
+    #     "integration_scene": "Cảnh camera AI được lắp đặt trong các tình huống thực tế như nhà máy, cửa hàng, tòa nhà thông minh.",
+    #     "client_testimonial": "Khách hàng chia sẻ trải nghiệm về việc sử dụng camera AI, nhấn mạnh tính năng nổi bật và hiệu quả mang lại.",
+    #     "team_meeting": "Cuộc họp nhóm phát triển sản phẩm, trao đổi ý tưởng và chiến lược ra mắt thị trường.",
+    #     "closing_scene": "Thông điệp thương hiệu kết thúc, kèm khẩu hiệu và thông tin liên hệ của công ty."
+    # }
+    # dtw.update_scenario(dtw.cur, "demo2", demo2)
     exit()
     
     # from libs.utils import MyException, check_folder_exist

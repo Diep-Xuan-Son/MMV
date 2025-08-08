@@ -1,9 +1,12 @@
 import os
-import re as regex
+import cv2
 import time
 import random
 import asyncio
 import subprocess
+import unicodedata
+import re as regex
+from PIL import ImageFont
 
 import sys
 from pathlib import Path 
@@ -13,6 +16,35 @@ ROOT = FILE.parents[1]
 if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))
 
+# from libs.utils import logging
+# logger = logging.getLogger("test-video-editor")
+# file_handler = logging.FileHandler("test1.log")
+# logger.addHandler(file_handler)
+
+def count_accent(word):
+    num_above = 0
+    num_below = 0
+    char_tail = ["g", "p", "y", "q", ","]
+    for char in word:
+        decomposed = unicodedata.normalize('NFD', char)
+        base = decomposed[0]
+        accents = decomposed[1:]
+        num_below_char = 0
+        # num_above_char = 0
+        if base in char_tail:
+            num_below_char = 1
+        # print(decomposed)
+        for mark in accents:
+            name = unicodedata.name(mark)
+            # print(name)
+            if 'BELOW' in name:
+                num_below_char = 1
+            # else:
+            #     num_above_char += 1
+        # num_above = num_above_char if num_above_char > num_above else num_above
+        num_below = num_below_char if num_below_char > num_below else num_below
+    return (num_above, num_below)
+
 class VideoEditorWorker(object):
     def __init__(self, 
                 dir_info_scene_change: str=f"{DIR}{os.sep}static{os.sep}info_scene_change",
@@ -21,6 +53,8 @@ class VideoEditorWorker(object):
         self.dir_info_scene_change = dir_info_scene_change
         self.duration_effect = duration_effect
         self.num_word_per_2second = 10
+        self.video_size = [1280,720]
+        self.font_text = f'{DIR}/font/arial/arialbd_custom2.pfa'
 
     async def detect_scene_change(self, u_id: str, video_path: str, threshold: float=0.3):
         print(f"----running detect_scene_change----")
@@ -89,6 +123,78 @@ class VideoEditorWorker(object):
         stdout, stderr = await proc.communicate()
         return {"success": True}
     
+    async def add_text2(self, texts: list, video_input_path: str, video_output_path: str, fast: bool, start_time: list=[0,], text_position: list=[425, 425, 630]):
+        print(f"----running add_text 2----")
+        padding_left, padding_right, y_sub_top = text_position
+        text_infos = ""
+        
+        cap = cv2.VideoCapture(video_input_path)
+        video_size = [int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))]
+        padding_left = video_size[0]*padding_left/1280
+        padding_right = video_size[0]*padding_right/1280
+        y_sub_top = video_size[1]*y_sub_top/720
+        font_sz = video_size[0]*0.04 if video_size[0]<video_size[1] else video_size[1]*0.03
+        font = ImageFont.truetype(self.font_text, size=font_sz)
+        h_word = sum(font.getmetrics())
+        w_space = font.getlength(" ")*1.2
+        y_word = y_sub_top + h_word
+        cap.release()
+        for j, st in enumerate(texts):
+            list_word = regex.sub(r'[,.]', '', st).split()
+            # The above code is defining a variable named `end_time` in Python.
+            end_time = start_time[j+1] - start_time[j]
+            x_word_start = padding_left
+            x_word_end = video_size[0] - padding_right
+            
+            w_sentence = font.getlength(st)
+            w_text_area = x_word_end - x_word_start
+            num_row_current = w_sentence/w_text_area + 0.2
+            
+            # print(w_sentence)
+            # print(len(list_word))
+            # print(num_row_current)
+            num_word_mini_sentence = int(len(list_word)/num_row_current)
+            num_row_current = len(list_word)/num_word_mini_sentence
+            end_time_mini_sentence = end_time/num_row_current
+            # print(end_time_mini_sentence)
+            # print(num_word_mini_sentence)
+            wt_duration = end_time/len(list_word)
+            # spare_time = 0
+            for i, word in enumerate(list_word):
+                if "%" in word:
+                    word = word.replace("%", f"{chr(0x007F)}")
+                if ":" in word:
+                    word = word.replace(":", f"{chr(0x0080)}")
+                    
+                # num_above, num_below = count_accent(word)
+                # num_accent = (num_above - num_below)
+                # accent_ratio = num_accent/5.5
+                
+                w_word = font.getlength(word)
+                wt = round(i*wt_duration,2) + start_time[j]
+                mini_sentence_index = i//num_word_mini_sentence + 1
+                # if x_word_start + w_word > x_word_end:
+                #     x_word_start = padding_left
+                if i%num_word_mini_sentence==0:
+                    x_word_start = padding_left
+                    # if i:
+                    #     print(mini_sentence_index*end_time_mini_sentence - wt)
+                    #     spare_time += max(mini_sentence_index*end_time_mini_sentence - wt, 0)
+                    #     wt += spare_time
+                    
+                # text_infos += f"drawtext=text='{word}':fontcolor=red:fontsize={font_sz}:fontfile={self.font_text}:x='{x_word_start}':y='{y_word} - text_h - {accent_ratio}*text_h':enable='between(t,{wt},{end_time_mini_sentence*mini_sentence_index})',"
+                text_infos += f"drawtext=text='{word}':fontcolor=#FFFF00:fontsize={font_sz}:fontfile={self.font_text}:x='{x_word_start}':y='{y_word} - ascent':enable='between(t,{wt},{end_time_mini_sentence*mini_sentence_index + start_time[j]})',"
+                
+                x_word_start += w_word + w_space
+        if fast:
+            cmd = ['ffmpeg', "-y", "-i", video_input_path, "-vf", text_infos[:-1], "-c:v", "h264_nvenc", "-preset", "fast", "-crf", "18", "-c:a", "copy", video_output_path]
+        else:
+            cmd = ['ffmpeg', "-y", "-i", video_input_path, "-vf", text_infos[:-1], "-c:v", "libx264", "-c:a", "copy", "-r", "30", video_output_path]
+        # print(cmd)
+        proc = await asyncio.create_subprocess_exec(*cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        stdout, stderr = await proc.communicate()
+        return {"success": True}
+    
     async def get_duration(self, vinput: str):
         # def _probe():
         #     return ffmpeg.probe(vinput)
@@ -114,7 +220,7 @@ class VideoEditorWorker(object):
             duration = await self.get_duration(inp)
             # duration = 8
             inputs += ["-i", inp]
-            info_convert += f'[{i}:v]fps=30,scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2[vid{i}];'
+            info_convert += f'[{i}:v]fps=30,scale={self.video_size[0]}:{self.video_size[1]}:force_original_aspect_ratio=decrease,pad={self.video_size[0]}:{self.video_size[1]}:(ow-iw)/2:(oh-ih)/2[vid{i}];'
             if i==0:
                 # video_length += duration
                 continue
@@ -159,14 +265,14 @@ class VideoEditorWorker(object):
             # n_audio = int((list_audio_time[i+1]-list_audio_time[i])*1e-3//duration_audio)-1 if list_audio_time[i+1]>=0 else 0
             # a_inputs += ["-stream_loop", f"{n_audio}", "-i", inp]
             a_inputs += ["-stream_loop", "0", "-i", inp]
-            a_info += f"[{i+1}:a]adelay={list_audio_time[i]}|{list_audio_time[i]},volume=100[a{i+1}];"
+            a_info += f"[{i+1}:a]aformat=channel_layouts=stereo,aresample=44100,adelay={list_audio_time[i]}|{list_audio_time[i]},volume=35[a{i+1}];"
             a_ids += f"[a{i+1}]"
         # adding background audio
         duration_audio = await self.get_duration(audio_background_path)
         duration_video_input = await self.get_duration(video_input_path)
         n_audio = int(duration_video_input//duration_audio)-1 # subtract 1 because it is once itself
         a_inputs += ["-stream_loop", f"{n_audio}", "-i", audio_background_path]
-        a_info += f"[{len(list_audio_path)+1}:a]adelay=0|0,volume=5[a{len(list_audio_path)+1}];"
+        a_info += f"[{len(list_audio_path)+1}:a]aformat=channel_layouts=stereo,aresample=44100,adelay=0|0,volume=3[a{len(list_audio_path)+1}];"
         a_ids += f"[a{len(list_audio_path)+1}]"
 
         cmd = ['ffmpeg', '-y'] + a_inputs + ['-filter_complex', f'{a_info}{a_ids}amix=inputs={len(list_audio_path)+1}[a]', '-map', '0:v', '-map', '[a]', "-c:v", "copy", "-c:a", "aac", "-shortest", video_output_path]
@@ -176,6 +282,7 @@ class VideoEditorWorker(object):
         return {"success": True}
 
 if __name__=="__main__":
+    
     vew = VideoEditorWorker()
     # result = asyncio.run(vew.detect_scene_change(u_id="abc", video_path="./data_storage/test/5wsDJfdPuq0.mp4"))
     # print(f"----result: {result}")
@@ -191,10 +298,14 @@ if __name__=="__main__":
     # result = asyncio.run(vew.add_text('Chào mừng bạn đến với MQ Spa, nơi không gian sang trọng và dịch vụ hoàn hảo hòa quyện. Hãy cùng khám phá những trải nghiệm tuyệt vời mà chúng tôi mang đến cho bạn.', "./data_test/fire2.mp4", "abc.mp4", True))
     # print(f"----result: {result}")
     # exit()
-
-    result = asyncio.run(vew.add_effect(["circleopen","fade","hrslice","radial"], ['/home/mq/disk2T/son/code/GitHub/MMV/src/static/final_video/spa2/final_mini_video_text_7.mp4', '/home/mq/disk2T/son/code/GitHub/MMV/src/static/final_video/spa2/final_mini_video_text_6.mp4', '/home/mq/disk2T/son/code/GitHub/MMV/src/static/final_video/spa2/final_mini_video_text_5.mp4'], "abc.mp4", True))
+    
+    result = asyncio.run(vew.add_text2(['Chào mừng đến với MQ Spa, nơi mang đến trải nghiệm thư giãn tuyệt vời giữa không gian sang trọng và yên bình. Logo của chúng tôi thể hiện sự tinh tế và chuyên nghiệp, hứa hẹn sẽ mang lại cho bạn những giây phút thư giãn tuyệt vời nhất.'], "./data_test/test2.mp4", "./data_test/abc1.mp4", False, [1, 7.5], [300, 300, 600]))
     print(f"----result: {result}")
     exit()
+
+    # result = asyncio.run(vew.add_effect(["circleopen","fade","hrslice","radial"], ['/home/mq/disk2T/son/code/GitHub/MMV/src/static/final_video/spa2/final_mini_video_text_7.mp4', '/home/mq/disk2T/son/code/GitHub/MMV/src/static/final_video/spa2/final_mini_video_text_6.mp4', '/home/mq/disk2T/son/code/GitHub/MMV/src/static/final_video/spa2/final_mini_video_text_5.mp4'], "abc.mp4", True))
+    # print(f"----result: {result}")
+    # exit()
 
     # result = vew.change_ratio([640,480], "./data_test/fire2.mp4", "fire22.mp4")
     # print(f"----result: {result}")

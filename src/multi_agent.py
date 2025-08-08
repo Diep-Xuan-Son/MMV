@@ -3,7 +3,7 @@ from base.agent import Agent
 from pydantic import BaseModel, Field
 from langchain_openai import ChatOpenAI
 
-from prompts import PROMPT_CHOOSE_TOOL, PROMPT_ANSWER, PROMPT_GET_MEMORY, PROMPT_ADVANCED_QUERY, PROMPT_SELECT_MATCHING_DESCRIPTION, PROMPT_REWRITE_DESCRIPTION_RELY_ON_OVERVIEW, PROMPT_REWRITE_DESCRIPTION, PROMPT_CHOOSE_SCENE, PROMPT_CHOOSE_DESCRIPTION4SCENE, PROMPT_WRITE_OVERALL_DESCRIPTION
+from prompts import PROMPT_CHOOSE_TOOL, PROMPT_ANSWER, PROMPT_GET_MEMORY, PROMPT_ADVANCED_QUERY, PROMPT_SELECT_MATCHING_DESCRIPTION, PROMPT_REWRITE_DESCRIPTION_RELY_ON_OVERVIEW, PROMPT_REWRITE_DESCRIPTION, PROMPT_CHOOSE_SCENE, PROMPT_CHOOSE_DESCRIPTION4SCENE, PROMPT_WRITE_OVERALL_DESCRIPTION, PROMPT_CREATE_SCENARIO, PROMPT_UPDATE_SCENARIO
 
 
 class MultiAgent(object):
@@ -67,6 +67,18 @@ class MultiAgent(object):
             llm = llm
         )
         
+        self.agent_create_scenario = Agent(
+            system_prompt = "You are an AI assisstant",
+            prompt = PROMPT_CREATE_SCENARIO,
+            llm = llm
+        )
+        
+        self.agent_update_scenario = Agent(
+            system_prompt = "You are an AI assisstant",
+            prompt = PROMPT_UPDATE_SCENARIO,
+            llm = llm
+        )
+        
     async def choose_tool(self, query: str, memory: list):
         def OutputStructured(BaseModel):
             """Format the response as JSON including the response of chatbot, with key is 'tool'"""
@@ -109,12 +121,12 @@ class MultiAgent(object):
         print(f"----select_matching_description: {result}")
         return result
     
-    async def rewrite_description_rely_on_overview(self, overview: str, descriptions: dict):
+    async def rewrite_description_rely_on_overview(self, overview: str, description_parts: dict):
         def OutputStructured(BaseModel):
             """Format the response as JSON with value is new description and key is video ID"""
             result: dict = Field(description="video ID and new description")
 
-        result = await self.agent_rewrite_description_rely_on_overview(OutputStructured, overview=overview, descriptions=descriptions)
+        result = await self.agent_rewrite_description_rely_on_overview(OutputStructured, overview=overview, descriptions=description_parts)
         print(f"----rewrite_description_rely_on_overview: {result}")
         return result
     
@@ -149,11 +161,29 @@ class MultiAgent(object):
         print(f"----choose_description4scene: {result}")
         return result
     
-    async def write_overall_description(self, descriptions: dict):
+    async def write_overall_description(self, description_parts: dict):
         def OutputStructured(BaseModel):
             """Format the response as JSON with key is 'result' and value is the overall description"""
             result: str = Field(description="the overall description")
 
-        result = await self.agent_write_overall_description(OutputStructured, descriptions=descriptions)
+        result = await self.agent_write_overall_description(OutputStructured, descriptions=description_parts)
         print(f"----write_overall_description: {result}")
+        return result
+    
+    async def create_scenario(self, query: str):
+        def OutputStructured(BaseModel):
+            """Format the response as JSON with key is scene name and value is scene description"""
+            result: dict = Field(description="scene name and description")
+
+        result = await self.agent_create_scenario(OutputStructured, query=query)
+        print(f"----create_scenario: {result}")
+        return result
+
+    async def update_scenario(self, scene_des: dict):
+        def OutputStructured(BaseModel):
+            """Format the response as JSON with key is no name scene and value is new scene name"""
+            result: str = Field(description="no name scene and new scene name")
+
+        result = await self.agent_update_scenario(OutputStructured, scene_des=scene_des)
+        print(f"----update_scenario: {result}")
         return result

@@ -25,6 +25,8 @@ x-shared-env: &shared-api-worker-env
   API_KEY_OPENAI: ${API_KEY_OPENAI:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhcGlfa2V5Ijoic2stcHJvai1QSDNHNnlMVEticmdvaU9ieTA4YlVMNHc0eVYxR3NJa25IeEltTl9VMFI1WmVsOWpKcDI0MzZuNUEwOTdVdTVDeXVFMDJha1RqNVQzQmxia0ZKX3dJTUw2RHVrZzh4eWtsUXdsMTN0b2JfcGVkV1c0T1hsNzhQWGVIcDhOLW1DNjY1ZE1CdUlLMFVlWEt1bzRRUnk2Ylk1dDNYSUEifQ.2qjUENU0rafI6syRlTfnKIsm6O4zuhHRqahUcculn8E}
   API_KEY_GEM: ${API_KEY_GEM:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhcGlfa2V5IjoiQUl6YVN5Q1BKSHNJYUxXaGdMakllQkZVS3E4VHFrclRFdWhGd2xzIn0.7iN_1kRmOahYrT7i5FUplOYeda1s7QhYzk-D-AlgWgE}
 
+  NUM_WORKER: ${NUM_WORKER:-2}
+
 services:
   qdrant:
     image: qdrant/qdrant
@@ -152,7 +154,7 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1   # Replication factor for transaction logs
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1              # Minimum in-sync replicas for transactional logs
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0           # Initial delay before consumer group rebalancing
-      KAFKA_NUM_PARTITIONS: 3                             # Default number of partitions for new topics
+      KAFKA_NUM_PARTITIONS: ${NUM_WORKER:-2}              # Default number of partitions for new topics
       KAFKA_CONFLUENT_SCHEMA_REGISTRY_URL: http://schema-registry:8081
       # KAFKA_LOG_DIRS: /tmp/kraft-combined-logs
     ports:
@@ -172,8 +174,8 @@ services:
       bash -c "
         /etc/confluent/docker/run &  # Start Kafka in the background
         sleep 15 &&  # Wait for Kafka to start
-        kafka-topics --create --if-not-exists --bootstrap-server localhost:9094 --replication-factor 1 --partitions 1 --topic video_upload --config retention.ms=7200000 --config cleanup.policy=delete --config max.message.bytes=10485760 && \  # 10 MB
-        kafka-topics --create --if-not-exists --bootstrap-server localhost:9094 --replication-factor 1 --partitions 1 --topic user_query --config retention.ms=7200000 --config cleanup.policy=delete --config max.message.bytes=5242880 && \  # 5 MB
+        kafka-topics --create --if-not-exists --bootstrap-server localhost:9094 --replication-factor 1 --topic video_upload --config retention.ms=7200000 --config cleanup.policy=delete --config max.message.bytes=10485760 && \  # 10 MB
+        kafka-topics --create --if-not-exists --bootstrap-server localhost:9094 --replication-factor 1 --topic user_query --config retention.ms=7200000 --config cleanup.policy=delete --config max.message.bytes=5242880 && \  # 5 MB
         wait
       "
 
@@ -271,69 +273,72 @@ services:
   #   profiles:
   #     - kafka2
 
-  mmv:
-    image: dixuson/mmv
-    container_name: mmv
-    restart: always
-    environment:
-      REDISSERVER_URL: ${REDISSERVER_URL:-http://redis:6669}
-      REDISSERVER_PASSWORD: ${REDISSERVER_PASSWORD:-RedisAuth}
 
-      POSTGRES_URL: ${POSTGRES_URL:-http://postgres:5432}
-      POSTGRES_DBNAME: ${POSTGRES_DBNAME:-mmv}
-      POSTGRES_USER: ${POSTGRES_USER:-demo}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-demo123456}
-      TABLE_NAME: ${TABLE_NAME:-videos}
+  # mmv:
+  #   image: dixuson/mmv
+  #   container_name: mmv
+  #   restart: always
+  #   environment:
+  #     REDISSERVER_URL: ${REDISSERVER_URL:-http://redis:6669}
+  #     REDISSERVER_PASSWORD: ${REDISSERVER_PASSWORD:-RedisAuth}
 
-      KAFKA_ADDRESS: ${KAFKA_ADDRESS:-broker1:29094}
-      TOPIC_DATA: ${TOPIC_DATA:-video_upload}
-      TOPIC_QUERY: ${TOPIC_QUERY:-user_query}
-      GROUP_ID_DATA: ${GROUP_ID_DATA:-data_consumer}
-      GROUP_ID_QUERY: ${GROUP_ID_QUERY:-query_consumer}
+  #     POSTGRES_URL: ${POSTGRES_URL:-http://postgres:5432}
+  #     POSTGRES_DBNAME: ${POSTGRES_DBNAME:-mmv}
+  #     POSTGRES_USER: ${POSTGRES_USER:-demo}
+  #     POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-demo123456}
+  #     TABLE_NAME: ${TABLE_NAME:-videos}
 
-      QDRANT_URL: ${QDRANT_URL:-http://qdrant:6333}
-      COLLECTION_NAME: ${COLLECTION_NAME:-mmv}
+  #     KAFKA_ADDRESS: ${KAFKA_ADDRESS:-broker1:29094}
+  #     TOPIC_DATA: ${TOPIC_DATA:-video_upload}
+  #     TOPIC_QUERY: ${TOPIC_QUERY:-user_query}
+  #     GROUP_ID_DATA: ${GROUP_ID_DATA:-data_consumer}
+  #     GROUP_ID_QUERY: ${GROUP_ID_QUERY:-query_consumer}
 
-      MINIO_URL: ${MINIO_URL:-minio:9000}
-      BUCKET_NAME: ${BUCKET_NAME:-data_mmv}
-      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-demo}
-      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-demo123456}
+  #     QDRANT_URL: ${QDRANT_URL:-http://qdrant:6333}
+  #     COLLECTION_NAME: ${COLLECTION_NAME:-mmv}
 
-      API_KEY_OPENAI: ${API_KEY_OPENAI:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhcGlfa2V5Ijoic2stcHJvai1QSDNHNnlMVEticmdvaU9ieTA4YlVMNHc0eVYxR3NJa25IeEltTl9VMFI1WmVsOWpKcDI0MzZuNUEwOTdVdTVDeXVFMDJha1RqNVQzQmxia0ZKX3dJTUw2RHVrZzh4eWtsUXdsMTN0b2JfcGVkV1c0T1hsNzhQWGVIcDhOLW1DNjY1ZE1CdUlLMFVlWEt1bzRRUnk2Ylk1dDNYSUEifQ.2qjUENU0rafI6syRlTfnKIsm6O4zuhHRqahUcculn8E}
-      API_KEY_GEM: ${API_KEY_GEM:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhcGlfa2V5IjoiQUl6YVN5Q1BKSHNJYUxXaGdMakllQkZVS3E4VHFrclRFdWhGd2xzIn0.7iN_1kRmOahYrT7i5FUplOYeda1s7QhYzk-D-AlgWgE}
-    build:
-      dockerfile: Dockerfile_controller
-    ports: 
-      - "8385:8385"
-      - "8386:8386"
-    depends_on:
-      redis:
-        condition: service_started
-      broker1:
-        condition: service_healthy
-      postgres:
-        condition: service_started
-      minio:
-        condition: service_started
-      qdrant:
-        condition: service_started
-    volumes:
-      - ./static:/app/static
-      - ./src:/workspace/
-      - ./logs:/app/logs
-    networks:
-      mynetwork:
-    profiles:
-      - mmv
-    # command: sh -c "uvicorn --workers 1 --host 0.0.0.0 --port 8386 controller:app"
-    command: sh -c "nohup streamlit run test/test_ui.py --server.address 0.0.0.0 --server.port 8385 > ./logs/streamlit.log 2>&1 & uvicorn --workers 1 --host 0.0.0.0 --port 8386 controller:app"
-    deploy:
-      resources:
-        reservations:
-          devices:
-          - driver: nvidia
-            device_ids: ['0']
-            capabilities: [gpu]
+  #     MINIO_URL: ${MINIO_URL:-minio:9000}
+  #     BUCKET_NAME: ${BUCKET_NAME:-data_mmv}
+  #     MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-demo}
+  #     MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-demo123456}
+
+  #     API_KEY_OPENAI: ${API_KEY_OPENAI:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhcGlfa2V5Ijoic2stcHJvai1QSDNHNnlMVEticmdvaU9ieTA4YlVMNHc0eVYxR3NJa25IeEltTl9VMFI1WmVsOWpKcDI0MzZuNUEwOTdVdTVDeXVFMDJha1RqNVQzQmxia0ZKX3dJTUw2RHVrZzh4eWtsUXdsMTN0b2JfcGVkV1c0T1hsNzhQWGVIcDhOLW1DNjY1ZE1CdUlLMFVlWEt1bzRRUnk2Ylk1dDNYSUEifQ.2qjUENU0rafI6syRlTfnKIsm6O4zuhHRqahUcculn8E}
+  #     API_KEY_GEM: ${API_KEY_GEM:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhcGlfa2V5IjoiQUl6YVN5Q1BKSHNJYUxXaGdMakllQkZVS3E4VHFrclRFdWhGd2xzIn0.7iN_1kRmOahYrT7i5FUplOYeda1s7QhYzk-D-AlgWgE}
+
+  #     NUM_WORKER: ${NUM_WORKER:-2}
+  #   build:
+  #     dockerfile: Dockerfile_controller
+  #   ports: 
+  #     - "8385:8385"
+  #     - "8386:8386"
+  #   depends_on:
+  #     redis:
+  #       condition: service_started
+  #     broker1:
+  #       condition: service_healthy
+  #     postgres:
+  #       condition: service_started
+  #     minio:
+  #       condition: service_started
+  #     qdrant:
+  #       condition: service_started
+  #   volumes:
+  #     - ./static:/app/static
+  #     - ./src:/workspace/
+  #     - ./logs:/app/logs
+  #   networks:
+  #     mynetwork:
+  #   profiles:
+  #     - mmv
+  #   # command: sh -c "uvicorn --workers 1 --host 0.0.0.0 --port 8386 controller:app"
+  #   command: sh -c "nohup streamlit run test/test_ui.py --server.address 0.0.0.0 --server.port 8385 > ./logs/streamlit.log 2>&1 & uvicorn --workers $NUM_WORKER --host 0.0.0.0 --port 8386 controller:app"
+  #   deploy:
+  #     resources:
+  #       reservations:
+  #         devices:
+  #         - driver: nvidia
+  #           device_ids: ['0']
+  #           capabilities: [gpu]
 
 
 networks:
