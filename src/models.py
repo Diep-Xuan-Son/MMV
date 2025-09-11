@@ -56,11 +56,22 @@ class InputRoute(BaseModel):
     sender_id: str = ""
     sess_id: str = ""
     query: str = ""
+    
+class InputRouteSample(BaseModel):
+    route_name: str=""
+    samples: str="[]"
 
 class InputScenario(BaseModel):
     sender_id: str = ""
     name: str = "demo3"
     description: str = "video giới thiệu về công ty MQ. Một công ty làm về công nghệ thông minh cho giám sát VMS"
+    
+class InputGetScenario(BaseModel):
+    sender_id: str = ""
+    name: str = "demo3"
+    
+class InputGetListScenario(BaseModel):
+    sender_id: str = ""
     
 class InputUpdateScenario(BaseModel):
     sender_id: str = ""

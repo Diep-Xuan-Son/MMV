@@ -22,6 +22,7 @@ from main_pipeline import VideoMaketing
 # from highlight_worker import HighlightWorker
 from models import InputDataWorker, OutputDataWorker, VideoHighlight
 from libs.utils import delete_folder_exist
+from semantic_router import SemanticRouter
 
 import sys
 from pathlib import Path 
@@ -85,7 +86,7 @@ class Config:
     FOLDER_FINAL_VIDEO = os.getenv('FOLDER_FINAL_VIDEO', "final_video")
 
     SECRET_KEY     = os.getenv('SECRET_KEY', "MMV")
-    token_openai   = os.getenv('API_KEY_OPENAI', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhcGlfa2V5Ijoic2stcHJvai1QSDNHNnlMVEticmdvaU9ieTA4YlVMNHc0eVYxR3NJa25IeEltTl9VMFI1WmVsOWpKcDI0MzZuNUEwOTdVdTVDeXVFMDJha1RqNVQzQmxia0ZKX3dJTUw2RHVrZzh4eWtsUXdsMTN0b2JfcGVkV1c0T1hsNzhQWGVIcDhOLW1DNjY1ZE1CdUlLMFVlWEt1bzRRUnk2Ylk1dDNYSUEifQ.2qjUENU0rafI6syRlTfnKIsm6O4zuhHRqahUcculn8E')
+    token_openai   = os.getenv('API_KEY_OPENAI', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhcGlfa2V5Ijoic2stcHJvai1OTDJUa0cyWVRZOFJwcTNPLURmSjg5WHY2MG5qbDZCcklhYWs5TC12SFZOaHVaa3Zsc2FRc3pVQmUzbV9xbmRsSlowOVZJU1UzRlQzQmxia0ZKVzctVEtCSkFiSlZXTFJtMGREWGg0a2thSlhoWm9TYkEtbXdWQkMzcWdkSjY4YXJDSUZycVlfYU9BZXN3NXFSc0IzX2ZGUlNLWUEifQ.JSvIHYuDugxQlE0qRKcVxYB3UbiKddEcqPFYlZoRnSs')
     API_KEY_OPENAI = jwt.decode(token_openai, SECRET_KEY, algorithms=["HS256"])["api_key"]
     
     token_gem   = os.getenv('API_KEY_GEM', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhcGlfa2V5IjoiQUl6YVN5Q1BKSHNJYUxXaGdMakllQkZVS3E4VHFrclRFdWhGd2xzIn0.7iN_1kRmOahYrT7i5FUplOYeda1s7QhYzk-D-AlgWgE')
@@ -119,6 +120,7 @@ class MultiprocessWoker():
             dense_model_path=Config.dense_model_path
         )
         self.cur = self.init_postgres(Config.POSTGRES_DBNAME, Config.POSTGRES_URL, Config.POSTGRES_USER, Config.POSTGRES_PASSWORD)
+        self.SR = SemanticRouter(model=self.VM.dataw.model_text)
     
     def init_postgres(self, dbname: str, url: int, user: str, password: str):
         #----setup postgreSQL----
@@ -186,8 +188,9 @@ class MultiprocessWoker():
                     # v_id = f"{uuid.uuid4()}_{round(time.time())}".replace('-','_')
                     v_id = data["v_id"]
                     
+                    scenario_id = f"{data['sender_id']}_{data['scenario_name']}"
                     #----upload original file to minio----
-                    res_file2bucket = self.VM.dataw.upload_file2bucket(bucket_name=Config.BUCKET_NAME, folder_name=f"{data['scenario_name']}{os.sep}{Config.COLLECTION_NAME}_backup", list_file_path=[data["path_file"]])
+                    res_file2bucket = self.VM.dataw.upload_file2bucket(bucket_name=Config.BUCKET_NAME, folder_name=f"{scenario_id}{os.sep}{Config.COLLECTION_NAME}_backup", list_file_path=[data["path_file"]])
                     if not res_file2bucket["success"]:
                         raise ValueError(f"Error push file to bucket '{Config.BUCKET_NAME}': {res_file2bucket['error']}")
                         # print(f"Error push file to bucket '{Config.BUCKET_NAME}': {res_file2bucket['error']}")
@@ -199,10 +202,9 @@ class MultiprocessWoker():
                     self.VM.dataw.update_status(cur, data["sess_id"], "data", res, 10, "pending")
                     
                     #----preprocess data----
-                    data["scene_dict"] = json.loads(self.VM.dataw.get_scenario(cur, data['scenario_name'])["result"]["scenes"])
+                    data["scene_dict"] = json.loads(self.VM.dataw.get_scenario(cur,  data["sender_id"], data['scenario_name'])["result"]["scenes"])
                     datatf = await self.VM.preprocess_data_nohl(data=data)
                     #//////////////////////
-                    scenario_id = f"{data['sender_id']}_{data['scenario_name']}"
                     if datatf["success"]:
                         data_info = {
                             "sender_id": data["sender_id"],
