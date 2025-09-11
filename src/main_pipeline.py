@@ -657,10 +657,12 @@ class VideoMaketing(object):
             if dict_des[k]:
                 scene_des[k] = dict_des[k][v]
                 dict_path[k] = res["list_paths"][i][v]
-                dict_htime[k] = res["list_htimes"][i][v]
+                dict_htime[k] = res["list_htimes"][i][v] - 4    #back 4s video for 2s effect and then come to main content will be reasonable
                 dict_duration[k] = res["list_durations"][i][v]
         print(scene_des)
         new_descriptions = await self.MA_med.rewrite_description(descriptions=scene_des, query=query)
+        # vtype = await self.MA.get_type_video(query=query)
+        # new_descriptions = await self.MA_med.rewrite_description_2(descriptions=scene_des, query=query, purpose=vtype["purpose"], vtype=vtype["type"])
         #/////////////////////////////////////////////
         print(new_descriptions)
         print(dict_path)
@@ -765,7 +767,7 @@ class VideoMaketing(object):
         #----add audio----
         timestamp = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
         final_video_audio_file = f"{final_output_dir}{os.sep}mv_{u_id}_{timestamp}.mp4"
-        result = await self.vew.add_audio(final_video_file, list(audios.values()), [700] + list_duration_mini_video[:-1], f"{DIR}{os.sep}data{os.sep}audio_background{os.sep}bm1.mp3", final_video_audio_file)
+        result = await self.vew.add_audio(final_video_file, list(audios.values()), [700] + list_duration_mini_video[:-1], f"{DIR}{os.sep}data{os.sep}audio_background{os.sep}ba1.mp3", final_video_audio_file)
         #/////////////////
         if not self.is_making_mv:
             {"success": False, "list_path_delete": list_path_delete}

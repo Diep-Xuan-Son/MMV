@@ -168,7 +168,7 @@ class DBWorker(object):
                    list_duration: list,  
                    category: str="",  
                    mute: bool=True,
-                   scenario_name: str="",
+                   scenario_id: str="",
                    group_id: str="group1"):
         if not self.qdrant_client.collection_exists(collection_name=collection_name):
             return {"success": False, "error": f"Collection {collection_name} has not been registered yet"}
@@ -193,7 +193,7 @@ class DBWorker(object):
                         "list_duration": list_duration,
                         "category": category,
                         "mute": mute,
-                        "scenario_name": scenario_name,
+                        "scenario_id": scenario_id,
                         "datetime": datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
                         "timestamp": time.time(),
                         "group_id": group_id
@@ -544,13 +544,15 @@ class DBWorker(object):
             "INSERT INTO scenario (s_id, sender_id, name, scenes) VALUES (%s, %s, %s, %s) ON CONFLICT (s_id) DO UPDATE SET scenes = EXCLUDED.scenes;",
             (s_id, sender_id, name, json.dumps(scenes))
         )
-        
+    
+    @MyException()    
     def delete_scenario(self, cur: object, sender_id: str, name: str):
         s_id = f"{sender_id}_{name}"
         cur.execute(
             "DELETE FROM scenario WHERE s_id = %s;",
             (s_id,)
         )
+        return {"success": True}
         
     def get_scenario(self, cur: object, sender_id: str, scenario_name: str):
         s_id = f"{sender_id}_{scenario_name}"
@@ -646,7 +648,7 @@ class DBWorker(object):
         
         #----upload vector data to qdrant----
         print("----upload to qdrant----")
-        self.add_vector(collection_name=collection_name, v_id=v_id, v_name=v_name, root_path=root_path, overview=overview, list_path=list_path_new, list_des=list_des, list_htime=list_htime, list_duration=list_duration, category=category, mute=mute, scenario_name=scenario_name, group_id="group1")
+        self.add_vector(collection_name=collection_name, v_id=v_id, v_name=v_name, root_path=root_path, overview=overview, list_path=list_path_new, list_des=list_des, list_htime=list_htime, list_duration=list_duration, category=category, mute=mute, scenario_id=scenario_id, group_id="group1")
         if not res["success"]:
             print(res["error"])
             return res

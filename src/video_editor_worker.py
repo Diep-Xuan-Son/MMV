@@ -280,6 +280,17 @@ class VideoEditorWorker(object):
         proc = await asyncio.create_subprocess_exec(*cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         stdout, stderr = await proc.communicate()
         return {"success": True}
+    
+    async def create_video_from_image(self, image_path: list, output_path: str, fast: bool):
+        if fast:
+            cmd = ['ffmpeg', '-y', "-loop", "1", "-t", "30", "-i", image_path, '-c:v', "h264_nvenc", "-preset", "fast", "-c:a", "copy", "-r", "30", output_path]
+        else:
+            cmd = ['ffmpeg', '-y', "-loop", "1", "-t", "30", "-i", image_path, '-c:v', 'libx264', "-preset", "fast", "-r", "30", output_path]
+        print(f"----cmd: {cmd}")
+        proc = await asyncio.create_subprocess_exec(*cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        stdout, stderr = await proc.communicate()
+        # subprocess.run(cmd, check=True)
+        return {"success": True}
 
 if __name__=="__main__":
     
@@ -299,9 +310,9 @@ if __name__=="__main__":
     # print(f"----result: {result}")
     # exit()
     
-    result = asyncio.run(vew.add_text2(['Chào mừng đến với MQ Spa, nơi mang đến trải nghiệm thư giãn tuyệt vời giữa không gian sang trọng và yên bình. Logo của chúng tôi thể hiện sự tinh tế và chuyên nghiệp, hứa hẹn sẽ mang lại cho bạn những giây phút thư giãn tuyệt vời nhất.'], "./data_test/test2.mp4", "./data_test/abc1.mp4", False, [1, 7.5], [300, 300, 600]))
-    print(f"----result: {result}")
-    exit()
+    # result = asyncio.run(vew.add_text2(['Chào mừng đến với MQ Spa, nơi mang đến trải nghiệm thư giãn tuyệt vời giữa không gian sang trọng và yên bình. Logo của chúng tôi thể hiện sự tinh tế và chuyên nghiệp, hứa hẹn sẽ mang lại cho bạn những giây phút thư giãn tuyệt vời nhất.'], "./data_test/test2.mp4", "./data_test/abc1.mp4", False, [1, 7.5], [300, 300, 600]))
+    # print(f"----result: {result}")
+    # exit()
 
     # result = asyncio.run(vew.add_effect(["circleopen","fade","hrslice","radial"], ['/home/mq/disk2T/son/code/GitHub/MMV/src/static/final_video/spa2/final_mini_video_text_7.mp4', '/home/mq/disk2T/son/code/GitHub/MMV/src/static/final_video/spa2/final_mini_video_text_6.mp4', '/home/mq/disk2T/son/code/GitHub/MMV/src/static/final_video/spa2/final_mini_video_text_5.mp4'], "abc.mp4", True))
     # print(f"----result: {result}")
@@ -315,3 +326,6 @@ if __name__=="__main__":
     
     # result = vew.get_duration("./src/static/videos_splitted/spa/4_splitted_0.mp4")
     # print(f"----result: {result}")
+    
+    result = asyncio.run(vew.create_video_from_image("./data_test/military.jpg", "./data_test/military.mp4", True))
+    print(f"----result: {result}")

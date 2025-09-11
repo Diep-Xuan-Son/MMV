@@ -3,7 +3,7 @@ from base.agent import Agent
 from pydantic import BaseModel, Field
 from langchain_openai import ChatOpenAI
 
-from prompts import PROMPT_CHOOSE_TOOL, PROMPT_ANSWER, PROMPT_GET_MEMORY, PROMPT_ADVANCED_QUERY, PROMPT_SELECT_MATCHING_DESCRIPTION, PROMPT_REWRITE_DESCRIPTION_RELY_ON_OVERVIEW, PROMPT_REWRITE_DESCRIPTION, PROMPT_CHOOSE_SCENE, PROMPT_CHOOSE_DESCRIPTION4SCENE, PROMPT_WRITE_OVERALL_DESCRIPTION, PROMPT_CREATE_SCENARIO, PROMPT_UPDATE_SCENARIO
+from prompts import PROMPT_CHOOSE_TOOL, PROMPT_ANSWER, PROMPT_GET_MEMORY, PROMPT_ADVANCED_QUERY, PROMPT_SELECT_MATCHING_DESCRIPTION, PROMPT_REWRITE_DESCRIPTION_RELY_ON_OVERVIEW, PROMPT_REWRITE_DESCRIPTION, PROMPT_CHOOSE_SCENE, PROMPT_CHOOSE_DESCRIPTION4SCENE, PROMPT_WRITE_OVERALL_DESCRIPTION, PROMPT_CREATE_SCENARIO, PROMPT_UPDATE_SCENARIO, PROMPT_REFLECTION, PROMPT_ANSWER_2, PROMPT_TYPE_VIDEO, PROMPT_REWRITE_DESCRIPTION_2
 
 
 class MultiAgent(object):
@@ -22,6 +22,18 @@ class MultiAgent(object):
         self.agent_get_memory = Agent(
             system_prompt = "You are an helpful assistant",
             prompt = PROMPT_GET_MEMORY,
+            llm = llm
+        )
+        
+        self.agent_reflection = Agent(
+            system_prompt = "You are an helpful assistant",
+            prompt = PROMPT_REFLECTION,
+            llm = llm
+        )
+        
+        self.agent_answer_2 = Agent(
+            system_prompt = "",
+            prompt = PROMPT_ANSWER_2,
             llm = llm
         )
 
@@ -46,6 +58,18 @@ class MultiAgent(object):
         self.agent_rewrite_description = Agent(
             system_prompt = "You are a marketing expert that analyze these video descriptions below and select some descriptions to make a good marketing video",
             prompt = PROMPT_REWRITE_DESCRIPTION,
+            llm = llm
+        )
+        
+        self.agent_rewrite_description_2 = Agent(
+            system_prompt = "",
+            prompt = PROMPT_REWRITE_DESCRIPTION_2,
+            llm = llm
+        )
+        
+        self.agent_get_type_video = Agent(
+            system_prompt = "",
+            prompt = PROMPT_TYPE_VIDEO,
             llm = llm
         )
         
@@ -95,12 +119,28 @@ class MultiAgent(object):
         print(f"----answer: {result}")
         return result
     
+    async def answer_2(self, query: str, memory: list):
+        def OutputStructured(BaseModel):
+            """Format the response as JSON including the response of chatbot, with keys are 'response'"""
+
+        result = await self.agent_answer_2(OutputStructured, query=query, memory=memory)
+        print(f"----answer_2: {result}")
+        return result
+    
     async def get_memory(self, query: str, message: str):
         def OutputStructured(BaseModel):
             """Format the response as JSON with value is text and key is 'result'"""
 
         result = await self.agent_get_memory(OutputStructured, query=query, message=message)
         print(f"----get_memory: {result}")
+        return result
+    
+    async def reflection(self, query: str, memory: str):
+        def OutputStructured(BaseModel):
+            """Format the response as JSON with value is text and key is 'result'"""
+
+        result = await self.agent_reflection(OutputStructured, query=query, memory=memory)
+        print(f"----reflection: {result}")
         return result
     
     async def get_advanced_query(self, query: str, scene_dict: dict):
@@ -137,6 +177,25 @@ class MultiAgent(object):
 
         result = await self.agent_rewrite_description(OutputStructured, query=query, descriptions=descriptions)
         print(f"----rewrite_description: {result}")
+        return result
+    
+    async def rewrite_description_2(self, query: str, descriptions: dict, purpose: str, vtype: str):
+        def OutputStructured(BaseModel):
+            """Format the response as JSON with value is a dictionary including scene name and new description"""
+            result: dict = Field(description="scene name and new description")
+
+        result = await self.agent_rewrite_description_2(OutputStructured, query=query, descriptions=descriptions, purpose=purpose, type=vtype)
+        print(f"----rewrite_description_2: {result}")
+        return result
+    
+    async def get_type_video(self, query: str):
+        def OutputStructured(BaseModel):
+            """Format the response as JSON with keys are purpose and type video"""
+            purpose: dict = Field(description="purpose of the video")
+            type: dict = Field(description="type of the video")
+
+        result = await self.agent_get_type_video(OutputStructured, query=query)
+        print(f"----get_type_video: {result}")
         return result
     
     async def choose_scene(self, scene_dict: str, descriptions: dict, category: str):

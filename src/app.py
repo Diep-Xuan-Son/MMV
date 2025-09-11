@@ -75,9 +75,10 @@ async def lifespan(app: FastAPI):
 # Create FastAPI application
 app = FastAPI(
     title="Chat Bot API",
+    docs_url="/docs",
     description="High-concurrency API for calling chat bot",
     version="1.0.0",
-    lifespan=lifespan
+    # lifespan=lifespan
 )
 app.mount("/static", StaticFiles(directory=PATH_STATIC), name="static")
 # Add CORS middleware

@@ -10,7 +10,7 @@ from app import *
 from langchain_core.prompts import ChatPromptTemplate
 from prompts import PROMPT_CHOOSE_TOOL, PROMPT_ANSWER, PROMPT_GET_MEMORY
 from langchain_core.messages import HumanMessage, SystemMessage
-from models import Topic, ProduceInput, InputDataWorker, InputQueryWorker, Status, VideoId, field, InputRoute, InputScenario, InputUpdateScenario
+from models import Topic, ProduceInput, InputDataWorker, InputQueryWorker, Status, VideoId, field, InputRoute, InputScenario, InputUpdateScenario, InputGetScenario, InputGetListScenario, InputRouteSample
 
 @app.post("/api/uploadData")
 @HTTPException() 
@@ -21,7 +21,7 @@ async def uploadData(inputs: ProduceInput = Depends(ProduceInput), video_file: U
         if inputs.sess_id in list_session_id:
             return JSONResponse(status_code=409, content=str(f"The session_id is duplicated!"))
         
-    content_type = file.content_type
+    content_type = video_file.content_type
     if content_type in ["image/jpg", "image/jpeg", "image/png"]:
         file_type = "image"
     elif content_type in ["video/mp4", "video/quicktime"]:
@@ -205,11 +205,11 @@ async def checkCreateVideo(inputs: InputRoute = Body(...)):
     print(inputs.query)
     print(inputs.sender_id)
     #-------------------------------------------------------
-    result_tool = await MULTIW.VM.MA.choose_tool(inputs.query, old_memory)
+    result_tool = await MULTIW.VM.MA.choose_tool(inputs.query, old_memory[::-1])
     #/////////////////////////////////////////////////////////    
     
     #-------------------------------------------------------
-    result = await MULTIW.VM.MA.answer(inputs.query, old_memory)
+    result = await MULTIW.VM.MA.answer(inputs.query, old_memory[::-1])
     if result_tool["tool"] == "create_video":
         result["response"] += "Tôi sẽ tạo video dựa vào những đặc điểm bạn đã cung cấp."
     result.update(result_tool)
@@ -219,10 +219,64 @@ async def checkCreateVideo(inputs: InputRoute = Body(...)):
     result_mem = await MULTIW.VM.MA.get_memory(result["new_query"], result["response"])
     #/////////////////////////////////////////////////////////
     old_memory.insert(0, f"Created at {time.strftime('%H:%M:%S', time.gmtime())}: " + result_mem["result"])
-    MULTIW.VM.dataw.redisClient.hset(inputs.sender_id, MULTIW.VM.dataw.dbmemory_name, json.dumps(old_memory[:10]))
+    MULTIW.VM.dataw.redisClient.hset(inputs.sender_id, MULTIW.VM.dataw.dbmemory_name, json.dumps(old_memory[:20]))
     MULTIW.VM.dataw.redisClient.expire(inputs.sender_id, 1800)
 
     return JSONResponse(status_code=200, content=result)
+
+@app.post("/api/checkCreateVideov2")
+@HTTPException() 
+async def checkCreateVideov2(inputs: InputRoute = Body(...)):
+    old_memory = []
+    if MULTIW.VM.dataw.redisClient.exists(inputs.sender_id):
+        old_memory = json.loads(MULTIW.VM.dataw.redisClient.hget(inputs.sender_id, MULTIW.VM.dataw.dbmemory_name))
+    print(f"----old_memory: {old_memory}")
+    print(inputs.query)
+    print(inputs.sender_id)
+    #-------------------------------------------------------
+    new_query = await MULTIW.VM.MA.reflection(inputs.query, old_memory[::-1])
+    #/////////////////////////////////////////////////////////    
+    # sample_gen_video = redisClient.hkeys("genVideoSample")
+    # sample_chitchat = redisClient.hkeys("chitchatSample")
+    # if len(sample_gen_video)==0:
+    #     pass
+    route_embed = {"genVideoSample": MULTIW.VM.dataw.redisClient.hvals("genVideoSample"), "chitchatSample": MULTIW.VM.dataw.redisClient.hvals("chitchatSample")}
+    route_result = MULTIW.SR.guide(new_query["result"], route_embed)
+    print(route_result)
+    result = {}
+    if route_result[1] == "genVideoSample":
+        result["response"] = "Tôi sẽ tạo video dựa vào những đặc điểm bạn đã cung cấp."
+        result["tool"] = "create_video"
+    elif route_result[1] == "chitchatSample":
+        #-------------------------------------------------------
+        result = await MULTIW.VM.MA.answer_2(inputs.query, old_memory[::-1])
+        result["tool"] = "Q&A"
+        #///////////////////////////////////////////////////////// 
+    
+    #---------------------------------------------------------
+    result_mem = await MULTIW.VM.MA.get_memory(new_query["result"], result["response"])
+    #/////////////////////////////////////////////////////////
+    old_memory.insert(0, {"User": inputs.query, "Assistant": result_mem["result"]})
+    MULTIW.VM.dataw.redisClient.hset(inputs.sender_id, MULTIW.VM.dataw.dbmemory_name, json.dumps(old_memory[:20]))
+    MULTIW.VM.dataw.redisClient.expire(inputs.sender_id, 600)
+
+    return JSONResponse(status_code=200, content=result)
+
+@app.post("/api/addRouteSample")
+@HTTPException() 
+async def addRouteSample(inputs: InputRouteSample = Body(...)):
+    samples = eval(inputs.samples)
+    sampleEmbeddings = MULTIW.SR.embed(samples)
+    print(sampleEmbeddings.shape)
+    for i, sp in enumerate(samples):
+        MULTIW.VM.dataw.redisClient.hset(f"{inputs.route_name}", sp, sampleEmbeddings[i].tobytes())
+    return JSONResponse(status_code=200, content="Add success!")
+
+@app.post("/api/deleteRouteSample")
+@HTTPException() 
+async def deleteRouteSample(inputs: InputRouteSample = Body(...)):
+    MULTIW.VM.dataw.redisClient.delete(f"{inputs.route_name}")
+    return JSONResponse(status_code=200, content="Delete success!")
 
 @app.post("/api/createScenario")
 @HTTPException() 
@@ -247,7 +301,7 @@ async def updateScenario(inputs: InputUpdateScenario = Body(...)):
 
 @app.post("/api/getScenario")
 @HTTPException() 
-async def getScenario(inputs: InputScenario = Body(...)):
+async def getScenario(inputs: InputGetScenario = Body(...)):
     res = MULTIW.VM.dataw.get_scenario(MULTIW.cur, inputs.sender_id, inputs.name)
     if not res["success"]:
         return JSONResponse(status_code=500, content=res["error"])
@@ -255,7 +309,7 @@ async def getScenario(inputs: InputScenario = Body(...)):
 
 @app.post("/api/getListScenario")
 @HTTPException() 
-async def getListScenario(inputs: InputScenario = Body(...)):
+async def getListScenario(inputs: InputGetListScenario = Body(...)):
     res = MULTIW.VM.dataw.get_list_scenario(MULTIW.cur, inputs.sender_id)
     if not res["success"]:
         return JSONResponse(status_code=500, content=res["error"])
@@ -263,7 +317,7 @@ async def getListScenario(inputs: InputScenario = Body(...)):
 
 @app.post("/api/deleteScenario")
 @HTTPException() 
-async def deleteScenario(inputs: InputScenario = Body(...)):
+async def deleteScenario(inputs: InputGetScenario = Body(...)):
     res = MULTIW.VM.dataw.delete_scenario(MULTIW.cur, inputs.sender_id, inputs.name)
     if not res["success"]:
         return JSONResponse(status_code=500, content=res["error"])
@@ -299,7 +353,24 @@ async def deleteTopic(topic_name: dict = Body({"topic_name":"video_upload"})):
     else:
         return JSONResponse(status_code=500, content=str(res["error"]))
     
+@app.get("/health")
+async def health_check():
+    health_status = {"status": "ok"}
+    # try:
+    #     conn = await psycopg2.connect("postgresql://user:pass@localhost/db")
+    #     await conn.close()
+    # except Exception:
+    #     health_status["status"] = "error"
+    #     health_status["db"] = "unreachable"
     
+    # try:
+    #     redis = await aioredis.from_url("redis://localhost")
+    #     await redis.ping()
+    # except Exception:
+    #     health_status["status"] = "error"
+    #     health_status["redis"] = "unreachable"
+    return health_status
+
 if __name__=="__main__":
     host = "0.0.0.0"
     port = 8386

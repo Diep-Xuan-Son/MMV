@@ -84,8 +84,9 @@ def create_scenario(sender_id, name, description):
     res = requests.request("POST", url, headers=headers, data=payload)
     content = res.json()
     
-    if res.status_code == 500:
+    if res.status_code != 200:
         content = f"Cannot generate scenario because {content}"
+        return content
     
     result = eval(content['scenes'])
     des = result.values()
@@ -111,7 +112,7 @@ def update_scenario(sender_id, name, scenes):
     res = requests.request("POST", url, headers=headers, data=payload)
     content = res.json()
     
-    if res.status_code == 500:
+    if res.status_code != 200:
         content = f"Cannot generate scenario because {content}"
     
     result = eval(content['scenes'])
@@ -137,8 +138,10 @@ def get_scenario(sender_id, name):
     res = requests.request("POST", url, headers=headers, data=payload)
     content = res.json()
     
-    if res.status_code == 500:
-        content = f"Cannot get scenario because {content}"
+    # print(res.status_code)
+    if res.status_code != 200:
+        # content = f"Cannot get scenario because {content}"
+        return f"Cannot get scenario because {content}"
     
     result = eval(content['scenes'])
     des = result.values()
@@ -162,6 +165,9 @@ def get_list_scenario(sender_id):
     res = requests.request("POST", url, headers=headers, data=payload)
     content = res.json()
     
+    if res.status_code != 200:
+        content = []
+    
     print(content)
     return content
 
@@ -180,14 +186,17 @@ def delete_scenario(sender_id, name):
     res = requests.request("POST", url, headers=headers, data=payload)
     content = res.json()
     
+    if res.status_code != 200:
+        return {"success": False, "content": content}
+    
     print(content)
-    return content
+    return {"success": True, "content": content}
     
 def prepare_video(sender_id, sess_id, video_name, topic_name, overview, category, mute, scenario_name, video):
     url = "http://localhost:8386/api/uploadData"
         
     headers = {}
-    if category == "Select category...":
+    if category == "Select scene...":
         category = ""
     
     params = {
@@ -336,6 +345,8 @@ if 'scenario_name' not in st.session_state:
     st.session_state["scenario_name"] = ""
 if 'scenario_select' not in st.session_state:
     st.session_state["scenario_select"] = ""
+if 'scenario_data' not in st.session_state:
+    st.session_state["scenario_data"] = {}
     
 # Sidebar for MinIO configuration
 with st.sidebar:
@@ -404,209 +415,180 @@ with st.sidebar:
                     st.error(st.session_state["scenario"])
                 else:
                     st.success("Update successfully!")
-    scenario_box = st.selectbox(
-        "Scenario Name",
-        options=st.session_state["list_scenario"],
-        help="Choose your scenario"
-    )
-    st.session_state["scenario_select"] = scenario_box
-    scenario_data = get_scenario(st.session_state["sender_id"], scenario_box)
-    df_2 = pd.DataFrame(scenario_data.items(), columns=['Scene', 'Description'])
-    edited_df_2 = st.data_editor(df_2, use_container_width=True, num_rows="dynamic", key=f"scenario_data_2", disabled=True)
+    # scenario_box = st.selectbox(
+    #     "Scenario Name",
+    #     options=st.session_state["list_scenario"],
+    #     help="Choose your scenario"
+    # )
+    # st.session_state["scenario_select"] = scenario_box
+    # scenario_data = get_scenario(st.session_state["sender_id"], scenario_box)
+    # if isinstance(scenario_data, dict):
+    #     st.session_state["scenario_data"] = scenario_data
+    #     df_2 = pd.DataFrame(scenario_data.items(), columns=['Scene', 'Description'])
+    #     edited_df_2 = st.data_editor(df_2, use_container_width=True, num_rows="dynamic", key=f"scenario_data_2", disabled=True)
+    #     if st.button("🗑️ Delete this scenario", type="secondary"):
+    #         response = delete_scenario(st.session_state["sender_id"], scenario_box)
+    #         if response["success"]:
+    #             st.success(response["content"])
+    #         else:
+    #             st.error(response["content"])
+    #         st.rerun()
+    # else:
+    #     st.session_state["scenario_data"] = {}
     st.divider()
     
-    # Sidebar with upload form
-    st.header("📤 Upload Video")
-    # Video upload
-    uploaded_file = st.file_uploader(
-        "Choose video file",
-        type=['mp4', 'avi', 'mov', 'wmv', 'flv', 'webm', 'mkv'],
-        help="Supported formats: MP4, AVI, MOV, WMV, FLV, WebM, MKV"
-    )
-    
-    if uploaded_file is not None:
-        st.success(f"✅ Uploaded: {uploaded_file.name}")
-        st.write(f"File size: {uploaded_file.size / (1024*1024):.2f} MB")
-                 
-        # st.divider()
-        
-        # Video metadata form
-        st.subheader("📝 Video Details")
-        
-        # Title
-        video_name = st.text_input(
-            "Video Name",
-            value=uploaded_file.name,
-            placeholder="Enter video name...",
-            help="Required field"
+    if st.session_state["scenario_data"]:
+        # Sidebar with upload form
+        st.header("📤 Upload Video")
+        # Video upload
+        uploaded_file = st.file_uploader(
+            "Choose video file",
+            type=['mp4', 'avi', 'mov', 'wmv', 'flv', 'webm', 'mkv'],
+            help="Supported formats: MP4, AVI, MOV, WMV, FLV, WebM, MKV"
         )
         
-        # Description
-        video_description = st.text_area(
-            "Description",
-            placeholder="Describe your video content...",
-            height=100,
-            help="Provide a detailed description of your video"
-        )
-        
-        # Category
-        category = st.selectbox(
-            "Category*",
-            options=[
-                "Select category...",
-                "Business",
-                "Education",
-                "Entertainment", 
-                "Technology",
-                "Marketing",
-                "Training",
-                "Tutorial",
-                "Presentation",
-                "Documentary",
-                "Other"
-            ],
-            help="Choose the most appropriate category"
-        )
-        
-        mute_video = st.checkbox(
-            "Mute Video",
-            value=True,
-            help="Remove audio from video"
-        )
-        
-        # Volume control
-        if not mute_video:
-            volume_level = st.slider(
-                "Volume Level",
-                min_value=0,
-                max_value=100,
-                value=100,
-                help="Adjust audio volume (0-100%)"
+        if uploaded_file is not None:
+            st.success(f"✅ Uploaded: {uploaded_file.name}")
+            st.write(f"File size: {uploaded_file.size / (1024*1024):.2f} MB")
+                    
+            # st.divider()
+            
+            # Video metadata form
+            st.subheader("📝 Video Details")
+            
+            # Title
+            video_name = st.text_input(
+                "Video Name",
+                value=uploaded_file.name,
+                placeholder="Enter video name...",
+                help="Required field"
             )
             
-        # Quality settings
-        st.subheader("⚙️ Quality Settings")
-        
-        quality = st.select_slider(
-            "Video Quality",
-            options=["Low (480p)", "Medium (720p)", "High (1080p)", "Ultra (4K)"],
-            value="High (1080p)",
-            help="Higher quality = larger file size"
-        )
-        
-        # Compression
-        compress_video = st.checkbox(
-            "Compress Video",
-            value=False,
-            help="Reduce file size with minimal quality loss"
-        )
-        
-        # st.divider()
-        
-        if st.button("📤 Upload", type="primary", use_container_width=True):
-            if uploaded_file and video_name:
-                # Simulate upload process
-                progress_bar = st.progress(0)
-                status_text = st.empty()
-                with st.spinner("Uploading video..."):                     
-                    text_response, is_processing = prepare_video(st.session_state["sender_id"], st.session_state["sess_id"], video_name, "video_upload", video_description, category, mute_video, st.session_state["scenario_select"], uploaded_file)
-                    
-                    if is_processing:
-                        while True:
-                            time.sleep(1)
-                            percent, status, text_response, _, _ = update_status(st.session_state["sess_id"])
-                            # print(percent)
-                            progress_bar.progress(percent/100)
-                            status_text.text(f"Processing... {percent}%")
-                            if status == "done":
-                                st.success("✅ Video uploaded successfully!")
-                                st.balloons()
-                                break
-                            elif status == "error":
-                                st.error("❌ Can't upload video")
-                                break
-                        delete_task(st.session_state["sess_id"])
-                        progress_bar.empty()
-                        status_text.empty()
+            # Description
+            video_description = st.text_area(
+                "Description",
+                placeholder="Describe your video content...",
+                height=100,
+                help="Provide a detailed description of your video"
+            )
+            
+            # Scene
+            list_scene = list(st.session_state["scenario_data"].keys())
+            list_scene = ["Select scene..."] + list_scene
+            scene_category = st.selectbox(
+                "Scene*",
+                options=list_scene,
+                help="Choose the most appropriate category"
+            )
+            
+            mute_video = st.checkbox(
+                "Mute Video",
+                value=True,
+                help="Remove audio from video"
+            )
+            
+            # Volume control
+            if not mute_video:
+                volume_level = st.slider(
+                    "Volume Level",
+                    min_value=0,
+                    max_value=100,
+                    value=100,
+                    help="Adjust audio volume (0-100%)"
+                )
+                
+            # Quality settings
+            st.subheader("⚙️ Quality Settings")
+            
+            quality = st.select_slider(
+                "Video Quality",
+                options=["Low (480p)", "Medium (720p)", "High (1080p)", "Ultra (4K)"],
+                value="High (1080p)",
+                help="Higher quality = larger file size"
+            )
+            
+            # Compression
+            compress_video = st.checkbox(
+                "Compress Video",
+                value=False,
+                help="Reduce file size with minimal quality loss"
+            )
+            
+            # st.divider()
+            
+            if st.button("📤 Upload", type="primary", use_container_width=True):
+                if uploaded_file and video_name:
+                    # Simulate upload process
+                    progress_bar = st.progress(0)
+                    status_text = st.empty()
+                    with st.spinner("Uploading video..."):                     
+                        text_response, is_processing = prepare_video(st.session_state["sender_id"], st.session_state["sess_id"], video_name, "video_upload", video_description, scene_category, mute_video, st.session_state["scenario_select"], uploaded_file)
                         
-                    else:
-                        st.error(f"❌ {text_response}")
-                    
-            else:
-                st.error("❌ Please fill required fields and select a video file")
-        
-        # Clear form
-        if st.button("🗑️ Clear Form", use_container_width=True):
-            st.rerun()
+                        if is_processing:
+                            while True:
+                                time.sleep(1)
+                                percent, status, text_response, _, _ = update_status(st.session_state["sess_id"])
+                                # print(percent)
+                                progress_bar.progress(percent/100)
+                                status_text.text(f"Processing... {percent}%")
+                                if status == "done":
+                                    st.success("✅ Video uploaded successfully!")
+                                    st.balloons()
+                                    break
+                                elif status == "error":
+                                    st.error("❌ Can't upload video")
+                                    break
+                            delete_task(st.session_state["sess_id"])
+                            progress_bar.empty()
+                            status_text.empty()
+                            
+                        else:
+                            st.error(f"❌ {text_response}")
+                        
+                else:
+                    st.error("❌ Please fill required fields and select a video file")
+            
+            # Clear form
+            if st.button("🗑️ Clear Form", use_container_width=True):
+                st.rerun()
 
 # Main chat interface
 st.title("🤖 MMV Chatbot")
-st.markdown("Send queries and receive text and video responses stored in MinIO")
+st.markdown("Chat with me to create video with your demand")
+st.divider()
+col1, col2 = st.columns([2, 1])
 
-# Display chat messages
-chat_container = st.container()
-with chat_container:
-    for message in st.session_state.messages:
-        with st.chat_message(message["role"]):
-            st.write(message["content"])
-            
-            # Display video if present
-            if "video_data" in message and message["video_data"]:
-                st.video(message["video_data"])
+with col1:
+    # Display chat messages
+    chat_container = st.container()
+    with chat_container:
+        for message in st.session_state.messages:
+            with st.chat_message(message["role"]):
+                st.write(message["content"])
+                
+                # Display video if present
+                if "video_data" in message and message["video_data"]:
+                    st.video(message["video_data"])
 
-# Chat input
-if prompt := st.chat_input("Enter your query..."):
-    if not st.session_state.minio_client:
-        st.error("Please connect to MinIO first using the sidebar configuration.")
-    else:
-        # Add user message to chat
-        st.session_state.messages.append({"role": "user", "content": prompt})
-        
-        with st.chat_message("user"):
-            st.write(prompt)
-        
-        # Process the query
-        with st.chat_message("assistant"):
-            with st.spinner("Waiting a minutes..."):
-                text_response, new_query, is_create_video = process_query(
-                    st.session_state["sender_id"],
-                    prompt, 
-                    st.session_state["sess_id"]
-                )
-                
-                # Display text response
-                st.write(text_response)
-                
-                # Add assistant response to chat
-                assistant_message = {
-                    "role": "assistant", 
-                    "content": text_response
-                }
+    # Chat input
+    if prompt := st.chat_input("Enter your query..."):
+        if not st.session_state.minio_client:
+            st.error("Please connect to MinIO first using the sidebar configuration.")
+        else:
+            # Add user message to chat
+            st.session_state.messages.append({"role": "user", "content": prompt})
             
-            if is_create_video:
-                progress_bar = st.progress(0)
-                status_text = st.empty()    
-                with st.spinner("Creating video, please wait a minute..."):
-                    video_url = ""
-                    video_filename = ""
-                    text_response, is_processing = process_video(
+            with st.chat_message("user"):
+                st.write(prompt)
+            
+            # Process the query
+            with st.chat_message("assistant"):
+                with st.spinner("Waiting a minutes..."):
+                    text_response, new_query, is_create_video = process_query(
                         st.session_state["sender_id"],
-                        new_query, 
-                        st.session_state["sess_id"],
-                        st.session_state["scenario_select"],
+                        prompt, 
+                        st.session_state["sess_id"]
                     )
-                    if is_processing:
-                        while True:
-                            time.sleep(1)
-                            percent, status, text_response, video_filename, video_url = update_status(st.session_state["sess_id"])
-                            print(percent)
-                            progress_bar.progress(percent/100)
-                            status_text.text(f"Processing... {percent}%")
-                            if status == "done" or status == "error":
-                                delete_task(st.session_state["sess_id"])
-                                break
-                        progress_bar.empty()
-                        status_text.empty()
                     
                     # Display text response
                     st.write(text_response)
@@ -616,28 +598,83 @@ if prompt := st.chat_input("Enter your query..."):
                         "role": "assistant", 
                         "content": text_response
                     }
-                        
-                    # Handle video response
-                    video_data = None
-                    if video_url:
-                        # If you have a video URL, display it
-                        st.video(video_url)
-                        video_data = video_url
-                    elif video_filename:
-                        # Try to get video from MinIO
-                        video_bytes = get_from_minio(
-                            st.session_state.minio_client, 
-                            bucket_name, 
-                            video_filename
+                
+                if is_create_video:
+                    progress_bar = st.progress(0)
+                    status_text = st.empty()    
+                    with st.spinner("Creating video, please wait a minute..."):
+                        video_url = ""
+                        video_filename = ""
+                        text_response, is_processing = process_video(
+                            st.session_state["sender_id"],
+                            new_query, 
+                            st.session_state["sess_id"],
+                            st.session_state["scenario_select"],
                         )
-                        if video_bytes:
-                            st.video(video_bytes)
-                            video_data = video_bytes
-                
-                if video_data:
-                    assistant_message["video_data"] = video_data
-                
-            st.session_state.messages.append(assistant_message)
+                        if is_processing:
+                            while True:
+                                time.sleep(1)
+                                percent, status, text_response, video_filename, video_url = update_status(st.session_state["sess_id"])
+                                print(percent)
+                                progress_bar.progress(percent/100)
+                                status_text.text(f"Processing... {percent}%")
+                                if status == "done" or status == "error":
+                                    delete_task(st.session_state["sess_id"])
+                                    break
+                            progress_bar.empty()
+                            status_text.empty()
+                        
+                        # Display text response
+                        st.write(text_response)
+                        
+                        # Add assistant response to chat
+                        assistant_message = {
+                            "role": "assistant", 
+                            "content": text_response
+                        }
+                            
+                        # Handle video response
+                        video_data = None
+                        if video_url:
+                            # If you have a video URL, display it
+                            st.video(video_url)
+                            video_data = video_url
+                        elif video_filename:
+                            # Try to get video from MinIO
+                            video_bytes = get_from_minio(
+                                st.session_state.minio_client, 
+                                bucket_name, 
+                                video_filename
+                            )
+                            if video_bytes:
+                                st.video(video_bytes)
+                                video_data = video_bytes
+                    
+                    if video_data:
+                        assistant_message["video_data"] = video_data
+                    
+                st.session_state.messages.append(assistant_message)
+with col2:
+    scenario_box = st.selectbox(
+        "Scenario Name",
+        options=st.session_state["list_scenario"],
+        help="Choose your scenario"
+    )
+    st.session_state["scenario_select"] = scenario_box
+    scenario_data = get_scenario(st.session_state["sender_id"], scenario_box)
+    if isinstance(scenario_data, dict):
+        st.session_state["scenario_data"] = scenario_data
+        df_2 = pd.DataFrame(scenario_data.items(), columns=['Scene', 'Description'])
+        edited_df_2 = st.data_editor(df_2, use_container_width=True, num_rows="dynamic", key=f"scenario_data_2", disabled=True)
+        if st.button("🗑️ Delete this scenario", type="secondary"):
+            response = delete_scenario(st.session_state["sender_id"], scenario_box)
+            if response["success"]:
+                st.success(response["content"])
+            else:
+                st.error(response["content"])
+            st.rerun()
+    else:
+        st.session_state["scenario_data"] = {}
 
 # # File upload section
 st.markdown("---")
