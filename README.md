@@ -1,4 +1,8 @@
 **<h1>Make Marketing Video</h1>**
+---
+
+## Pretrained
+[Click here to get model](https://drive.google.com/drive/folders/1MK35d_Y8cuMphnePkqGhE3plCevDoVch?usp=sharing)
 
 ## Installation
 ```bash
