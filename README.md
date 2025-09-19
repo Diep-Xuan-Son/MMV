@@ -27,9 +27,3 @@ cd docker
 # Change information of services in .env file and run command below:
 docker-compose -f docker-compose.yml --profile "*" up -d
 ```
-<<<<<<< HEAD
-=======
-Beta
-0 / 0
-used queries
->>>>>>> e3387cf (Update README.md)
